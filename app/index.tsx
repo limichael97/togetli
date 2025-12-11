@@ -1,0 +1,63 @@
+import { View, Text, StyleSheet } from "react-native";
+import { Link } from "expo-router";
+
+export default function LandingScreen() {
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Togetli</Text>
+      <Text style={styles.subtitle}>
+        Coordinate bachelor / bachelorette trips without group chat chaos.
+      </Text>
+
+      <View style={styles.buttons}>
+        <Link href="/(auth)/sign-in" style={styles.button}>
+          <Text style={styles.buttonText}>Sign in / Create account</Text>
+        </Link>
+
+        <Link href="/(app)/home" style={[styles.button, styles.secondaryButton]}>
+          <Text style={[styles.buttonText, styles.secondaryButtonText]}>
+            Skip auth (dev) → App Home
+          </Text>
+        </Link>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 80,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "#555",
+    marginBottom: 40,
+  },
+  buttons: {
+    gap: 16,
+  },
+  button: {
+    backgroundColor: "black",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+  },
+  buttonText: {
+    color: "white",
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  secondaryButton: {
+    backgroundColor: "#f2f2f2",
+  },
+  secondaryButtonText: {
+    color: "black",
+  },
+});
