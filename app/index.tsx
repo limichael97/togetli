@@ -1,5 +1,11 @@
-import { View, Text, StyleSheet } from "react-native";
-import { Link } from "expo-router";
+import { View, Text, Pressable, StyleSheet } from "react-native";
+import { Link, router } from "expo-router";
+import { supabase } from "../supabaseClient";
+
+// async function skipAuthDev() {
+//   await supabase.auth.signOut(); // ensure clean state
+//   router.replace("/(auth)/sign-in");
+// }
 
 export default function LandingScreen() {
   return (
@@ -13,12 +19,10 @@ export default function LandingScreen() {
         <Link href="/(auth)/sign-in" style={styles.button}>
           <Text style={styles.buttonText}>Sign in / Create account</Text>
         </Link>
-
-        <Link href="/(app)/home" style={[styles.button, styles.secondaryButton]}>
-          <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-            Skip auth (dev) → App Home
-          </Text>
-        </Link>
+{/* 
+        <Pressable onPress={skipAuthDev}>
+          <Text>Skip auth (dev)</Text>
+        </Pressable> */}
       </View>
     </View>
   );

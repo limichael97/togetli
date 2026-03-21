@@ -1,0 +1,171 @@
+import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet, ActivityIndicator, Pressable, ScrollView, Alert } from "react-native";
+import { useLocalSearchParams } from "expo-router";
+import { listTripMembers, updateTripMemberRole } from "../../../../lib/members";
+import { useAuthStore } from "../../../../store/useAuthStore";
+import type { TripMemberRow, TripRole } from "../../../../lib/trips";
+
+export default function TripMembersScreen() {
+  const params = useLocalSearchParams();
+  const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
+  const userId = useAuthStore((s) => s.userId);
+
+  const [members, setMembers] = useState<TripMemberRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+
+  const loadMembers = async () => {
+    if (!tripId) return;
+    try {
+      setErrorMsg(null);
+      setLoading(true);
+      const rows = await listTripMembers(tripId);
+      setMembers(rows);
+    } catch (e: any) {
+      setErrorMsg(e?.message ?? "Failed to load members");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMembers();
+  }, [tripId]);
+
+  const myMember = members.find((m) => m.user_id === userId);
+  const canManage = myMember?.role === "creator";
+
+  const setRole = async (member: TripMemberRow, role: Exclude<TripRole, "creator">) => {
+    if (!tripId) return;
+    if (member.role === "creator") return;
+    if (member.role === role) return;
+
+    try {
+      setUpdatingUserId(member.user_id);
+      await updateTripMemberRole({ tripId, userId: member.user_id, role });
+      setMembers((prev) =>
+        prev.map((m) => (m.user_id === member.user_id ? { ...m, role } : m))
+      );
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert("Update failed", e?.message ?? String(e));
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  if (!tripId) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.error}>Missing trip id.</Text>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  if (errorMsg) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.error}>{errorMsg}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>Members</Text>
+
+      {members.length === 0 ? (
+        <Text style={styles.empty}>No members found.</Text>
+      ) : (
+        members.map((m) => {
+          const isCreator = m.role === "creator";
+          const isUpdating = updatingUserId === m.user_id;
+          return (
+            <View key={m.user_id} style={styles.memberRow}>
+              <View style={styles.memberInfo}>
+                <Text style={styles.memberName}>{m.user_id}</Text>
+                <Text style={styles.memberRole}>{m.role}</Text>
+              </View>
+
+              {canManage && !isCreator ? (
+                <View style={styles.roleButtons}>
+                  <Pressable
+                    onPress={() => setRole(m, "guest")}
+                    disabled={isUpdating}
+                    style={[
+                      styles.roleBtn,
+                      m.role === "guest" ? styles.roleBtnActive : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.roleBtnText,
+                        m.role === "guest" ? styles.roleBtnTextActive : null,
+                      ]}
+                    >
+                      Guest
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setRole(m, "planner")}
+                    disabled={isUpdating}
+                    style={[
+                      styles.roleBtn,
+                      m.role === "planner" ? styles.roleBtnActive : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.roleBtnText,
+                        m.role === "planner" ? styles.roleBtnTextActive : null,
+                      ]}
+                    >
+                      Planner
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          );
+        })
+      )}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { padding: 24 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  title: { fontSize: 22, fontWeight: "700", marginBottom: 16 },
+  empty: { color: "#666" },
+  error: { color: "tomato" },
+  memberRow: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    gap: 10,
+  },
+  memberInfo: { gap: 4 },
+  memberName: { fontSize: 14, color: "#333" },
+  memberRole: { fontSize: 12, color: "#666" },
+  roleButtons: { flexDirection: "row", gap: 8 },
+  roleBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#ddd",
+  },
+  roleBtnActive: { backgroundColor: "black", borderColor: "black" },
+  roleBtnText: { color: "#333", fontWeight: "500", fontSize: 12 },
+  roleBtnTextActive: { color: "white" },
+});

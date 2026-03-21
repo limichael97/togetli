@@ -1,63 +1,131 @@
-import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
-import { Link } from "expo-router";
+// app/(app)/trips/index.tsx
+import React, { useCallback, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  Pressable,
+  ActivityIndicator,
+} from "react-native";
+import { Link, router, useFocusEffect } from "expo-router";
+import { listMyTrips, listTripsByOwner, TripRow } from "../../../lib/trips";
+import { useAuthStore } from "../../../store/useAuthStore";
 
-type Trip = {
-  id: string;
-  name: string;
-  dates: string;
-};
-
-const MOCK_TRIPS: Trip[] = [
-  { id: "1", name: "Michael & Jaynah’s Bach Trip", dates: "Mar 13–16, 2025" },
-];
+function formatTripDates(t: TripRow) {
+  if (t.final_start_date && t.final_end_date)
+    return `${t.final_start_date} → ${t.final_end_date}`;
+  return t.type;
+}
 
 export default function TripsListScreen() {
+  const userId = useAuthStore((s) => s.userId);
+  const authLoading = useAuthStore((s) => s.loading);
+
+  const [trips, setTrips] = useState<TripRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!userId) return;
+
+    try {
+      setErrorMsg(null);
+      setLoading(true);
+const rows = await listMyTrips(userId);
+setTrips(rows);
+    } catch (e: any) {
+      setErrorMsg(e?.message ?? "Failed to load trips");
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!authLoading) load();
+    }, [authLoading, load])
+  );
+
+  // If auth is still initializing, show spinner
+  if (authLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  // If not signed in, stop pretending
+  if (!userId) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.empty}>Please sign in to view trips.</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <FlatList
-        data={MOCK_TRIPS}
+        data={trips}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <View style={styles.header}>
             <Text style={styles.title}>Your Trips</Text>
-            <Link href="/(app)/trips/new">
-              <Text style={styles.newTrip}>+ New Trip</Text>
+            <Link href="/(app)/trips/new" asChild>
+              <Pressable>
+                <Text style={styles.newTrip}>+ New Trip</Text>
+              </Pressable>
             </Link>
           </View>
         }
+        ListEmptyComponent={
+          loading ? (
+            <View style={styles.center}>
+              <ActivityIndicator />
+            </View>
+          ) : errorMsg ? (
+            <View style={styles.center}>
+              <Text style={styles.error}>{errorMsg}</Text>
+              <Pressable onPress={load} style={styles.retryBtn}>
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.center}>
+              <Text style={styles.empty}>No trips yet.</Text>
+            </View>
+          )
+        }
         renderItem={({ item }) => (
-          <Pressable style={styles.tripCard}>
-            <Text style={styles.tripName}>{item.name}</Text>
-            <Text style={styles.tripDates}>{item.dates}</Text>
+          <Pressable
+            style={styles.tripCard}
+            onPress={() => router.push(`/(app)/trips/${item.id}`)}
+          >
+            <Text style={styles.tripName}>{item.title ?? "Untitled Trip"}</Text>
+            <Text style={styles.tripDates}>{formatTripDates(item)}</Text>
           </Pressable>
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        refreshing={loading}
+        onRefresh={load}
+        contentContainerStyle={trips.length === 0 ? { flexGrow: 1 } : undefined}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-  },
+  container: { flex: 1, paddingHorizontal: 24, paddingTop: 24 },
   header: {
     marginBottom: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  title: {
-    fontSize: 22,
-    fontWeight: "700",
-  },
-  newTrip: {
-    fontSize: 16,
-    color: "#555",
-    fontWeight: "500",
-  },
+  title: { fontSize: 22, fontWeight: "700" },
+  newTrip: { fontSize: 16, color: "#555", fontWeight: "500" },
   tripCard: {
     borderRadius: 14,
     borderWidth: 1,
@@ -65,13 +133,17 @@ const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: "white",
   },
-  tripName: {
-    fontSize: 16,
-    fontWeight: "600",
+  tripName: { fontSize: 16, fontWeight: "600" },
+  tripDates: { marginTop: 4, fontSize: 14, color: "#666" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  empty: { color: "#666" },
+  error: { color: "tomato", marginBottom: 10 },
+  retryBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#eee",
   },
-  tripDates: {
-    marginTop: 4,
-    fontSize: 14,
-    color: "#666",
-  },
+  retryText: { fontWeight: "600" },
 });
