@@ -128,24 +128,40 @@ export async function markPollSent(tripId: string) {
 export async function upsertPollResponse(params: {
   tripId: string;
   userId: string;
-  selectedDateOptionIds: string[];
-  selectedBudgetOptionIds: string[];
+  availableDateOptionIds: string[];
+  flightBudgetLabel?: string | null;
+  lodgingBudgetLabel?: string | null;
+  notes?: string | null;
+  customPollAnswers?: Record<string, unknown>;
 }) {
-  const { tripId, userId, selectedDateOptionIds, selectedBudgetOptionIds } = params;
+  const {
+    tripId,
+    userId,
+    availableDateOptionIds,
+    flightBudgetLabel = null,
+    lodgingBudgetLabel = null,
+    notes = null,
+    customPollAnswers = {},
+  } = params;
+
+  const payload = {
+    trip_id: tripId,
+    user_id: userId,
+    available_date_option_ids: availableDateOptionIds,
+    flight_budget_label: flightBudgetLabel,
+    lodging_budget_label: lodgingBudgetLabel,
+    notes,
+    custom_poll_answers: customPollAnswers,
+  };
+
+  console.log("[polls] upsertPollResponse payload", payload);
+
   const { error } = await supabase
     .from("poll_responses")
-    .upsert(
-      {
-        trip_id: tripId,
-        user_id: userId,
-        selected_date_option_ids: selectedDateOptionIds,
-        selected_budget_option_ids: selectedBudgetOptionIds,
-      },
-      { onConflict: "trip_id,user_id" }
-    );
+    .upsert(payload, { onConflict: "trip_id,user_id" });
+
   if (error) throw error;
 }
-
 export async function checkIfUserResponded(tripId: string, userId: string) {
   const { data, error } = await supabase
     .from("poll_responses")
@@ -155,4 +171,19 @@ export async function checkIfUserResponded(tripId: string, userId: string) {
     .maybeSingle();
   if (error) throw error;
   return !!data;
+}
+
+export type PollResponseRow = {
+  available_date_option_ids: string[] | null;
+  flight_budget_label: string | null;
+  lodging_budget_label: string | null;
+};
+
+export async function listPollResponses(tripId: string): Promise<PollResponseRow[]> {
+  const { data, error } = await supabase
+    .from("poll_responses")
+    .select("available_date_option_ids, flight_budget_label, lodging_budget_label")
+    .eq("trip_id", tripId);
+  if (error) throw error;
+  return (data ?? []) as PollResponseRow[];
 }

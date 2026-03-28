@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Pressable, ScrollView, Alert } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { listTripMembers, updateTripMemberRole } from "../../../../lib/members";
+import { listTripMembers, removeTripMember, updateTripMemberRole } from "../../../../lib/members";
 import { useAuthStore } from "../../../../store/useAuthStore";
 import type { TripMemberRow, TripRole } from "../../../../lib/trips";
 
@@ -14,6 +14,7 @@ export default function TripMembersScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null);
 
   const loadMembers = async () => {
     if (!tripId) return;
@@ -35,6 +36,10 @@ export default function TripMembersScreen() {
 
   const myMember = members.find((m) => m.user_id === userId);
   const canManage = myMember?.role === "creator";
+  const getMemberName = (member: TripMemberRow) =>
+    member.profiles?.display_name?.trim() ||
+    member.profiles?.full_name?.trim() ||
+    member.user_id;
 
   const setRole = async (member: TripMemberRow, role: Exclude<TripRole, "creator">) => {
     if (!tripId) return;
@@ -53,6 +58,35 @@ export default function TripMembersScreen() {
     } finally {
       setUpdatingUserId(null);
     }
+  };
+
+  const handleRemove = async (member: TripMemberRow) => {
+    if (!tripId || !userId) return;
+    if (member.role === "creator") return;
+
+    Alert.alert("Remove member?", "They will lose access to this trip.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setRemovingUserId(member.user_id);
+            await removeTripMember({
+              tripId,
+              actorUserId: userId,
+              targetUserId: member.user_id,
+            });
+            await loadMembers();
+          } catch (e: any) {
+            console.error(e);
+            Alert.alert("Remove failed", e?.message ?? String(e));
+          } finally {
+            setRemovingUserId(null);
+          }
+        },
+      },
+    ]);
   };
 
   if (!tripId) {
@@ -92,45 +126,57 @@ export default function TripMembersScreen() {
           return (
             <View key={m.user_id} style={styles.memberRow}>
               <View style={styles.memberInfo}>
-                <Text style={styles.memberName}>{m.user_id}</Text>
+                <Text style={styles.memberName}>{getMemberName(m)}</Text>
                 <Text style={styles.memberRole}>{m.role}</Text>
               </View>
 
               {canManage && !isCreator ? (
-                <View style={styles.roleButtons}>
-                  <Pressable
-                    onPress={() => setRole(m, "guest")}
-                    disabled={isUpdating}
-                    style={[
-                      styles.roleBtn,
-                      m.role === "guest" ? styles.roleBtnActive : null,
-                    ]}
-                  >
-                    <Text
+                <View style={styles.actionsRow}>
+                  <View style={styles.roleButtons}>
+                    <Pressable
+                      onPress={() => setRole(m, "guest")}
+                      disabled={isUpdating || removingUserId === m.user_id}
                       style={[
-                        styles.roleBtnText,
-                        m.role === "guest" ? styles.roleBtnTextActive : null,
+                        styles.roleBtn,
+                        m.role === "guest" ? styles.roleBtnActive : null,
                       ]}
                     >
-                      Guest
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setRole(m, "planner")}
-                    disabled={isUpdating}
-                    style={[
-                      styles.roleBtn,
-                      m.role === "planner" ? styles.roleBtnActive : null,
-                    ]}
-                  >
-                    <Text
+                      <Text
+                        style={[
+                          styles.roleBtnText,
+                          m.role === "guest" ? styles.roleBtnTextActive : null,
+                        ]}
+                      >
+                        Guest
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setRole(m, "planner")}
+                      disabled={isUpdating || removingUserId === m.user_id}
                       style={[
-                        styles.roleBtnText,
-                        m.role === "planner" ? styles.roleBtnTextActive : null,
+                        styles.roleBtn,
+                        m.role === "planner" ? styles.roleBtnActive : null,
                       ]}
                     >
-                      Planner
-                    </Text>
+                      <Text
+                        style={[
+                          styles.roleBtnText,
+                          m.role === "planner" ? styles.roleBtnTextActive : null,
+                        ]}
+                      >
+                        Planner
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <Pressable
+                    onPress={() => handleRemove(m)}
+                    disabled={removingUserId === m.user_id}
+                    style={[
+                      styles.removeBtn,
+                      removingUserId === m.user_id ? styles.removeBtnDisabled : null,
+                    ]}
+                  >
+                    <Text style={styles.removeBtnText}>Remove</Text>
                   </Pressable>
                 </View>
               ) : null}
@@ -157,6 +203,7 @@ const styles = StyleSheet.create({
   memberInfo: { gap: 4 },
   memberName: { fontSize: 14, color: "#333" },
   memberRole: { fontSize: 12, color: "#666" },
+  actionsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   roleButtons: { flexDirection: "row", gap: 8 },
   roleBtn: {
     paddingHorizontal: 10,
@@ -168,4 +215,13 @@ const styles = StyleSheet.create({
   roleBtnActive: { backgroundColor: "black", borderColor: "black" },
   roleBtnText: { color: "#333", fontWeight: "500", fontSize: 12 },
   roleBtnTextActive: { color: "white" },
+  removeBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#eee",
+  },
+  removeBtnText: { color: "#333", fontWeight: "600", fontSize: 12 },
+  removeBtnDisabled: { opacity: 0.5 },
 });

@@ -16,6 +16,7 @@ import { buildTripInviteLink, createTripInvite } from "../../../lib/invites";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { createDateOption, deleteDateOption } from "../../../lib/dateOptions";
 import { checkIfUserResponded } from "../../../lib/polls";
+import { leaveTrip } from "../../../lib/members";
 
 
 export default function TripDetailScreen() {
@@ -146,6 +147,25 @@ export default function TripDetailScreen() {
     ]);
   };
 
+  const handleLeaveTrip = async () => {
+    if (!tripId || !userId) return;
+
+    Alert.alert("Leave trip?", "You will lose access to this trip.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Leave",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await leaveTrip({ tripId, userId });
+            router.replace("/(app)/trips");
+          } catch (e: any) {
+            Alert.alert("Leave failed", e?.message ?? String(e));
+          }
+        },
+      },
+    ]);
+  };
 
   useEffect(() => {
     if (!tripId) return;
@@ -215,12 +235,24 @@ export default function TripDetailScreen() {
   const roleLabel = myMember?.role
     ? `You are a ${myMember.role[0].toUpperCase()}${myMember.role.slice(1)} on this trip.`
     : null;
+  const canViewResults = myMember?.role === "creator" || myMember?.role === "planner";
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>{trip.title ?? "Untitled Trip"}</Text>
       <Text style={styles.meta}>{trip.type}</Text>
       {roleLabel ? <Text style={styles.roleText}>{roleLabel}</Text> : null}
+      {myMember?.role && myMember.role !== "creator" ? (
+        <Pressable
+          onPress={handleLeaveTrip}
+          style={({ pressed }) => [
+            styles.leaveBtn,
+            pressed ? styles.leaveBtnPressed : null,
+          ]}
+        >
+          <Text style={styles.leaveBtnText}>Leave trip</Text>
+        </Pressable>
+      ) : null}
 
       {myMember?.role === "creator" && !pollSent ? (
         <Pressable
@@ -251,6 +283,17 @@ export default function TripDetailScreen() {
             </Text>
           </Pressable>
         )
+      ) : null}
+      {canViewResults && pollSent ? (
+        <Pressable
+          onPress={() => router.push(`/(app)/trips/${tripId}/poll-results`)}
+          style={({ pressed }) => [
+            styles.secondaryCtaButton,
+            pressed ? styles.secondaryCtaButtonPressed : null,
+          ]}
+        >
+          <Text style={styles.secondaryCtaButtonText}>View poll results</Text>
+        </Pressable>
       ) : null}
 
       {canInvite ? (
@@ -511,4 +554,26 @@ const styles = StyleSheet.create({
   ctaButtonText: { color: "white", textAlign: "center", fontWeight: "600" },
   ctaButtonPressed: { opacity: 0.7 },
   ctaInfo: { marginTop: 12, color: "#666" },
+  secondaryCtaButton: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#eee",
+    alignSelf: "flex-start",
+  },
+  secondaryCtaButtonText: { color: "#333", fontWeight: "600" },
+  secondaryCtaButtonPressed: { opacity: 0.7 },
+  leaveBtn: {
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#eee",
+    alignSelf: "flex-start",
+  },
+  leaveBtnText: { color: "#333", fontWeight: "600" },
+  leaveBtnPressed: { opacity: 0.7 },
 });

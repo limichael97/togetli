@@ -179,8 +179,50 @@ export type TripMemberRow = {
   role: TripRole;
   is_active: boolean;
   created_at: string;
-  // if you have a profiles join later, we’ll extend this
+  profiles?: {
+    id: string;
+    full_name: string | null;
+    display_name: string | null;
+    avatar_url: string | null;
+  } | null;
 };
+
+type RawTripMemberRow = {
+  user_id: string;
+  role: TripRole;
+  is_active: boolean;
+  created_at: string;
+  profiles?:
+    | {
+        id: string;
+        full_name: string | null;
+        display_name: string | null;
+        avatar_url: string | null;
+      }
+    | {
+        id: string;
+        full_name: string | null;
+        display_name: string | null;
+        avatar_url: string | null;
+      }[]
+    | null;
+};
+
+export function normalizeTripMemberRows(rows: RawTripMemberRow[] | null | undefined): TripMemberRow[] {
+  return (rows ?? []).map((row) => {
+    const profile = Array.isArray(row.profiles)
+      ? row.profiles[0] ?? null
+      : row.profiles ?? null;
+
+    return {
+      user_id: row.user_id,
+      role: row.role,
+      is_active: row.is_active,
+      created_at: row.created_at,
+      profiles: profile,
+    };
+  });
+}
 
 export type TripDateOptionRow = {
   id: string;
@@ -223,8 +265,11 @@ export async function getTripOverview(tripId: string): Promise<TripOverview> {
   // 2) Members
   const { data: members, error: memError } = await supabase
     .from("trip_members")
-    .select("user_id, role, is_active, created_at")
+    .select(
+      "user_id, role, is_active, created_at, profiles:profiles!trip_members_user_id_fkey(id, full_name, display_name, avatar_url)"
+    )
     .eq("trip_id", tripId)
+    .eq("is_active", true)
     .order("created_at", { ascending: true });
 
   if (memError) throw memError;
@@ -249,7 +294,7 @@ export async function getTripOverview(tripId: string): Promise<TripOverview> {
 
   return {
     trip: trip as TripRow,
-    members: (members ?? []) as TripMemberRow[],
+    members: normalizeTripMemberRows(members as RawTripMemberRow[] | null | undefined),
     dateOptions: (dateOptions ?? []) as TripDateOptionRow[],
     budgetOptions: (budgetOptions ?? []) as TripBudgetOptionRow[],
   };
