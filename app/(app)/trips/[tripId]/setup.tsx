@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
-  TextInput,
   ScrollView,
   Alert,
 } from "react-native";
@@ -19,6 +18,10 @@ import {
   upsertTripDateOptions,
 } from "../../../../lib/polls";
 import type { TripBudgetOptionInput, TripDateOptionInput } from "../../../../lib/polls";
+import { Screen } from "../../../../components/ui/Screen";
+import { AppButton } from "../../../../components/ui/AppButton";
+import { AppInput } from "../../../../components/ui/AppInput";
+import { colors, radius, spacing, typography } from "../../../../lib/theme";
 
 const LENGTH_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
 
@@ -248,265 +251,280 @@ export default function TripSetupScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.stepText}>Step {step} of 3</Text>
-      <Text style={styles.title}>Trip Setup</Text>
+    <Screen
+      title="Trip Setup"
+      subtitle="Set dates, trip length, and budget options before sending the poll."
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.stepText}>Step {step} of 3</Text>
 
-      {step === 1 ? (
-        <>
-          <Text style={styles.sectionTitle}>Trip length</Text>
-          <View style={styles.chipRow}>
-            {LENGTH_OPTIONS.map((len) => (
+        {step === 1 ? (
+          <>
+            <Text style={styles.sectionTitle}>Trip length</Text>
+            <View style={styles.chipRow}>
+              {LENGTH_OPTIONS.map((len) => (
+                <Pressable
+                  key={len}
+                  onPress={() => setLengthChoice(len)}
+                  style={[
+                    styles.chip,
+                    lengthChoice === len ? styles.chipActive : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.chipText,
+                      lengthChoice === len ? styles.chipTextActive : null,
+                    ]}
+                  >
+                    {len} days
+                  </Text>
+                </Pressable>
+              ))}
               <Pressable
-                key={len}
-                onPress={() => setLengthChoice(len)}
+                onPress={() => setLengthChoice("custom")}
                 style={[
                   styles.chip,
-                  lengthChoice === len ? styles.chipActive : null,
+                  lengthChoice === "custom" ? styles.chipActive : null,
                 ]}
               >
                 <Text
                   style={[
                     styles.chipText,
-                    lengthChoice === len ? styles.chipTextActive : null,
+                    lengthChoice === "custom" ? styles.chipTextActive : null,
                   ]}
                 >
-                  {len} days
+                  Custom
                 </Text>
               </Pressable>
-            ))}
+            </View>
+            {lengthChoice === "custom" ? (
+              <AppInput
+                label="Custom trip length"
+                placeholder="Enter number of days"
+                keyboardType="number-pad"
+                value={customLength}
+                onChangeText={setCustomLength}
+              />
+            ) : null}
+
+            <Text style={styles.sectionTitle}>Date options</Text>
+            <View style={styles.chipRow}>
+              {dateOptions.length === 0 ? (
+                <Text style={styles.muted}>No dates yet.</Text>
+              ) : (
+                dateOptions.map((d, idx) => (
+                  <Pressable
+                    key={`${d.start_date}-${d.end_date}-${idx}`}
+                    onPress={() => removeDateOption(idx)}
+                    style={styles.chip}
+                  >
+                    <Text style={styles.chipText}>
+                      {d.label ? `${d.label}: ` : ""}
+                      {d.start_date} → {d.end_date}
+                    </Text>
+                  </Pressable>
+                ))
+              )}
+            </View>
+
             <Pressable
-              onPress={() => setLengthChoice("custom")}
-              style={[
-                styles.chip,
-                lengthChoice === "custom" ? styles.chipActive : null,
-              ]}
+              onPress={() => setShowDateForm((v) => !v)}
+              style={styles.textButton}
             >
-              <Text
-                style={[
-                  styles.chipText,
-                  lengthChoice === "custom" ? styles.chipTextActive : null,
-                ]}
-              >
-                Custom
+              <Text style={styles.textButtonText}>
+                {showDateForm ? "Cancel" : "Add Trip Date Range"}
               </Text>
             </Pressable>
-          </View>
-          {lengthChoice === "custom" ? (
-            <TextInput
-              style={styles.input}
-              placeholder="Enter number of days"
-              keyboardType="number-pad"
-              value={customLength}
-              onChangeText={setCustomLength}
-            />
-          ) : null}
 
-          <Text style={styles.sectionTitle}>Date options</Text>
-          <View style={styles.chipRow}>
-            {dateOptions.length === 0 ? (
-              <Text style={styles.muted}>No dates yet.</Text>
-            ) : (
-              dateOptions.map((d, idx) => (
-                <Pressable
-                  key={`${d.start_date}-${d.end_date}-${idx}`}
-                  onPress={() => removeDateOption(idx)}
-                  style={styles.chip}
-                >
-                  <Text style={styles.chipText}>
+            {showDateForm ? (
+              <View style={styles.formCard}>
+                <AppInput
+                  label="Start date"
+                  placeholder="YYYY-MM-DD"
+                  value={newStart}
+                  onChangeText={setNewStart}
+                  autoCapitalize="none"
+                />
+                <AppInput
+                  label="End date"
+                  placeholder="YYYY-MM-DD"
+                  value={newEnd}
+                  onChangeText={setNewEnd}
+                  autoCapitalize="none"
+                />
+                <AppInput
+                  label="Label"
+                  placeholder="Optional"
+                  value={newLabel}
+                  onChangeText={setNewLabel}
+                />
+                <AppButton label="Add date range" onPress={addDateOption} />
+              </View>
+            ) : null}
+          </>
+        ) : null}
+
+        {step === 2 ? (
+          <>
+            <Text style={styles.sectionTitle}>Flight budget</Text>
+            <View style={styles.chipRow}>
+              {flightOptions.map((opt) => {
+                const active = selectedBudgetKeys.includes(budgetKey(opt));
+                return (
+                  <Pressable
+                    key={budgetKey(opt)}
+                    onPress={() => toggleBudget(opt)}
+                    style={[styles.chip, active ? styles.chipActive : null]}
+                  >
+                    <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={styles.sectionTitle}>Accommodation budget</Text>
+            <View style={styles.chipRow}>
+              {lodgingOptions.map((opt) => {
+                const active = selectedBudgetKeys.includes(budgetKey(opt));
+                return (
+                  <Pressable
+                    key={budgetKey(opt)}
+                    onPress={() => toggleBudget(opt)}
+                    style={[styles.chip, active ? styles.chipActive : null]}
+                  >
+                    <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        {step === 3 ? (
+          <>
+            <Text style={styles.sectionTitle}>Review</Text>
+            <View style={styles.reviewCard}>
+              <Text style={styles.reviewLine}>Trip length: {resolvedLength} days</Text>
+              <Text style={styles.reviewLabel}>Date options</Text>
+              {dateOptions.length === 0 ? (
+                <Text style={styles.muted}>None</Text>
+              ) : (
+                dateOptions.map((d, idx) => (
+                  <Text key={`review-${idx}`} style={styles.reviewLine}>
                     {d.label ? `${d.label}: ` : ""}
                     {d.start_date} → {d.end_date}
                   </Text>
-                </Pressable>
-              ))
-            )}
-          </View>
-
-          <Pressable
-            onPress={() => setShowDateForm((v) => !v)}
-            style={styles.textButton}
-          >
-            <Text style={styles.textButtonText}>
-              {showDateForm ? "Cancel" : "Add Trip Date Range"}
-            </Text>
-          </Pressable>
-
-          {showDateForm ? (
-            <View style={styles.form}>
-              <TextInput
-                style={styles.input}
-                placeholder="Start date (YYYY-MM-DD)"
-                value={newStart}
-                onChangeText={setNewStart}
-                autoCapitalize="none"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="End date (YYYY-MM-DD)"
-                value={newEnd}
-                onChangeText={setNewEnd}
-                autoCapitalize="none"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Label (optional)"
-                value={newLabel}
-                onChangeText={setNewLabel}
-              />
-              <Pressable onPress={addDateOption} style={styles.primaryBtn}>
-                <Text style={styles.primaryBtnText}>Add date range</Text>
-              </Pressable>
+                ))
+              )}
+              <Text style={styles.reviewLabel}>Budget options</Text>
+              {selectedBudgets.length === 0 ? (
+                <Text style={styles.muted}>None</Text>
+              ) : (
+                selectedBudgets.map((b) => (
+                  <Text key={`review-${budgetKey(b)}`} style={styles.reviewLine}>
+                    {b.type.toUpperCase()}: {b.label}
+                  </Text>
+                ))
+              )}
+              <Text style={styles.muted}>Notes: (coming soon)</Text>
             </View>
-          ) : null}
-        </>
-      ) : null}
+          </>
+        ) : null}
 
-      {step === 2 ? (
-        <>
-          <Text style={styles.sectionTitle}>Flight budget</Text>
-          <View style={styles.chipRow}>
-            {flightOptions.map((opt) => {
-              const active = selectedBudgetKeys.includes(budgetKey(opt));
-              return (
-                <Pressable
-                  key={budgetKey(opt)}
-                  onPress={() => toggleBudget(opt)}
-                  style={[styles.chip, active ? styles.chipActive : null]}
-                >
-                  <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
-                    {opt.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={styles.sectionTitle}>Accommodation budget</Text>
-          <View style={styles.chipRow}>
-            {lodgingOptions.map((opt) => {
-              const active = selectedBudgetKeys.includes(budgetKey(opt));
-              return (
-                <Pressable
-                  key={budgetKey(opt)}
-                  onPress={() => toggleBudget(opt)}
-                  style={[styles.chip, active ? styles.chipActive : null]}
-                >
-                  <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
-                    {opt.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      ) : null}
-
-      {step === 3 ? (
-        <>
-          <Text style={styles.sectionTitle}>Review</Text>
-          <Text style={styles.reviewLine}>Trip length: {resolvedLength} days</Text>
-          <Text style={styles.reviewLabel}>Date options</Text>
-          {dateOptions.length === 0 ? (
-            <Text style={styles.muted}>None</Text>
+        <View style={styles.footer}>
+          {step > 1 ? (
+            <Pressable
+              onPress={() => setStep((s) => (s === 2 ? 1 : 2))}
+              style={styles.secondaryBtn}
+              disabled={saving}
+            >
+              <Text style={styles.secondaryBtnText}>Back</Text>
+            </Pressable>
           ) : (
-            dateOptions.map((d, idx) => (
-              <Text key={`review-${idx}`} style={styles.reviewLine}>
-                {d.label ? `${d.label}: ` : ""}
-                {d.start_date} → {d.end_date}
-              </Text>
-            ))
+            <View style={styles.footerSpacer} />
           )}
-          <Text style={styles.reviewLabel}>Budget options</Text>
-          {selectedBudgets.length === 0 ? (
-            <Text style={styles.muted}>None</Text>
-          ) : (
-            selectedBudgets.map((b) => (
-              <Text key={`review-${budgetKey(b)}`} style={styles.reviewLine}>
-                {b.type.toUpperCase()}: {b.label}
-              </Text>
-            ))
-          )}
-          <Text style={styles.muted}>Notes: (coming soon)</Text>
-        </>
-      ) : null}
 
-      <View style={styles.footer}>
-        {step > 1 ? (
-          <Pressable
-            onPress={() => setStep((s) => (s === 2 ? 1 : 2))}
-            style={styles.secondaryBtn}
-            disabled={saving}
-          >
-            <Text style={styles.secondaryBtnText}>Back</Text>
-          </Pressable>
-        ) : (
-          <View />
-        )}
-
-        <Pressable onPress={handleNext} style={styles.primaryBtn} disabled={saving}>
-          <Text style={styles.primaryBtnText}>
-            {saving ? "Saving..." : step === 3 ? "Send Poll" : "Next"}
-          </Text>
-        </Pressable>
-      </View>
-    </ScrollView>
+          <View style={styles.primaryAction}>
+            <AppButton
+              label={saving ? "Saving..." : step === 3 ? "Send Poll" : "Next"}
+              onPress={handleNext}
+              disabled={saving}
+            />
+          </View>
+        </View>
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
-  stepText: { color: "#666", marginBottom: 8 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", marginTop: 16, marginBottom: 8 },
-  muted: { color: "#666" },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  scrollContent: { paddingBottom: spacing.xxl },
+  stepText: { ...typography.bodyMuted, marginBottom: spacing.md },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  muted: { ...typography.bodyMuted },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   chip: {
-    paddingHorizontal: 12,
+    paddingHorizontal: spacing.md,
     paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  chipActive: { backgroundColor: "black", borderColor: "black" },
-  chipText: { color: "#333", fontWeight: "500" },
-  chipTextActive: { color: "white" },
-  input: {
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { color: colors.text, fontWeight: "500" as const },
+  chipTextActive: { color: colors.onPrimary },
+  formCard: {
+    marginTop: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    marginTop: 8,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surface,
   },
-  form: { marginTop: 8, gap: 8 },
-  primaryBtn: {
-    backgroundColor: "black",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-    alignItems: "center",
-    marginTop: 8,
+  reviewCard: {
+    marginTop: spacing.xs,
+    padding: spacing.lg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surface,
   },
-  primaryBtnText: { color: "white", fontWeight: "600" },
   secondaryBtn: {
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: "#eee",
+    borderColor: colors.borderSoft,
   },
-  secondaryBtnText: { fontWeight: "600" },
-  textButton: { marginTop: 10 },
-  textButtonText: { color: "#111", fontWeight: "600" },
-  reviewLine: { color: "#333", marginBottom: 4 },
-  reviewLabel: { marginTop: 8, color: "#666" },
+  secondaryBtnText: { ...typography.button, color: colors.text },
+  textButton: { marginTop: spacing.md, alignSelf: "flex-start" },
+  textButtonText: { ...typography.label, color: colors.text },
+  reviewLine: { color: colors.text, marginBottom: spacing.xs },
+  reviewLabel: { marginTop: spacing.sm, color: colors.textMuted },
   footer: {
-    marginTop: 24,
+    marginTop: spacing.xl,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: spacing.md,
   },
+  footerSpacer: { flex: 1 },
+  primaryAction: { flex: 1 },
   error: { color: "tomato" },
 });

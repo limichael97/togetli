@@ -116,7 +116,11 @@ export default function RootLayout() {
   return (
     <>
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShadowVisible: false, headerTitleAlign: "center" }} />
+      <Stack screenOptions={{ headerShadowVisible: false, headerTitleAlign: "center" }}>
+        <Stack.Screen name="(app)" options={{ headerShown: false }} />
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+      </Stack>
     </>
   );
 }

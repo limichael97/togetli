@@ -233,26 +233,37 @@ export default function TripDetailScreen() {
   const canEditDates = myMember?.role === "creator" || myMember?.role === "planner";
   const pollSent = !!trip.poll_sent_at;
   const roleLabel = myMember?.role
-    ? `You are a ${myMember.role[0].toUpperCase()}${myMember.role.slice(1)} on this trip.`
+    ? `${myMember.role[0].toUpperCase()}${myMember.role.slice(1)}`
     : null;
   const canViewResults = myMember?.role === "creator" || myMember?.role === "planner";
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>{trip.title ?? "Untitled Trip"}</Text>
-      <Text style={styles.meta}>{trip.type}</Text>
-      {roleLabel ? <Text style={styles.roleText}>{roleLabel}</Text> : null}
-      {myMember?.role && myMember.role !== "creator" ? (
-        <Pressable
-          onPress={handleLeaveTrip}
-          style={({ pressed }) => [
-            styles.leaveBtn,
-            pressed ? styles.leaveBtnPressed : null,
-          ]}
-        >
-          <Text style={styles.leaveBtnText}>Leave trip</Text>
-        </Pressable>
-      ) : null}
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryTopRow}>
+          <View style={styles.summaryTextBlock}>
+            <Text style={styles.title}>{trip.title ?? "Untitled Trip"}</Text>
+            <Text style={styles.meta}>{trip.type}</Text>
+          </View>
+          {roleLabel ? (
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleBadgeText}>{roleLabel}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {myMember?.role && myMember.role !== "creator" ? (
+          <Pressable
+            onPress={handleLeaveTrip}
+            style={({ pressed }) => [
+              styles.leaveBtn,
+              pressed ? styles.leaveBtnPressed : null,
+            ]}
+          >
+            <Text style={styles.leaveBtnText}>Leave trip</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       {myMember?.role === "creator" && !pollSent ? (
         <Pressable
@@ -464,10 +475,32 @@ export default function TripDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24 },
+  container: { padding: 20, paddingTop: 16, paddingBottom: 32 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "700" },
-  meta: { marginTop: 8, color: "#666" },
+  summaryCard: {
+    padding: 20,
+    borderRadius: 20,
+    backgroundColor: "#f8f8f8",
+    borderWidth: 1,
+    borderColor: "#ececec",
+    marginBottom: 8,
+  },
+  summaryTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  summaryTextBlock: { flex: 1 },
+  title: { fontSize: 28, fontWeight: "700", letterSpacing: -0.3 },
+  meta: { marginTop: 6, color: "#666", fontSize: 15, textTransform: "capitalize" },
+  roleBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#111",
+  },
+  roleBadgeText: { color: "white", fontWeight: "600", fontSize: 12 },
   section: { marginTop: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#eee" },
   sectionPressed: { opacity: 0.7 },
   sectionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8 },
@@ -514,7 +547,6 @@ const styles = StyleSheet.create({
   inviteRoleOptionActive: { backgroundColor: "black", borderColor: "black" },
   inviteRoleOptionText: { color: "#333", fontWeight: "500" },
   inviteRoleOptionTextActive: { color: "white" },
-  roleText: { marginTop: 8, color: "#666" },
   form: { marginBottom: 12, gap: 8 },
   input: {
     borderWidth: 1,
@@ -566,7 +598,7 @@ const styles = StyleSheet.create({
   secondaryCtaButtonText: { color: "#333", fontWeight: "600" },
   secondaryCtaButtonPressed: { opacity: 0.7 },
   leaveBtn: {
-    marginTop: 10,
+    marginTop: 16,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 999,
