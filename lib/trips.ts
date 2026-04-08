@@ -1,5 +1,6 @@
 // lib/trips.ts
 import { supabase } from "../supabaseClient";
+import type { Database } from "../types/database.types";
 import type { CustomPollQuestion } from "../utils/polls";
 
 export type TripType = "bachelor" | "bachelorette" | "joint";
@@ -7,6 +8,7 @@ export type TripType = "bachelor" | "bachelorette" | "joint";
 export type PlanningMode = "planner_decides" | "group_vote" | "creator_decides";
 
 export type TripRole = "creator" | "planner" | "guest";
+export type TripLifecycleStatus = Database["public"]["Tables"]["trips"]["Row"]["status"];
 export interface DateOptionInput {
   startDate: string; // 'YYYY-MM-DD'
   endDate: string; // 'YYYY-MM-DD'
@@ -67,7 +69,7 @@ export async function createTrip(input: CreateTripInput) {
       custom_poll_questions: customQuestions,
     })
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
     .single();
   if (tripError) {
@@ -143,6 +145,7 @@ export type TripRow = {
   final_start_date: string | null;
   final_end_date: string | null;
   poll_sent_at: string | null;
+  status: TripLifecycleStatus | string;
   created_at: string;
 };
 
@@ -150,7 +153,7 @@ export async function listTripsByOwner(userId: string) {
   const { data, error } = await supabase
     .from("trips")
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
     .eq("created_by", userId)
     .order("created_at", { ascending: false });
@@ -164,7 +167,7 @@ export async function getTripById(tripId: string) {
   const { data, error } = await supabase
     .from("trips")
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
 
     .eq("id", tripId)
@@ -254,7 +257,7 @@ export async function getTripOverview(tripId: string): Promise<TripOverview> {
   const { data: trip, error: tripError } = await supabase
     .from("trips")
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
 
     .eq("id", tripId)
@@ -316,6 +319,7 @@ export async function listMyTrips(userId: string) {
         final_start_date,
         final_end_date,
         poll_sent_at,
+        status,
         created_at
       )
     `

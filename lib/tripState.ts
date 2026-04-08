@@ -6,7 +6,6 @@ function normalizeTripStage(value: string | null | undefined): TripStage {
   if (value === "polling" || value === "finalized") {
     return value;
   }
-
   return "draft";
 }
 
@@ -15,9 +14,5 @@ export function isTripReady(data: TripOverview): boolean {
 }
 
 export function getTripStage(data: TripOverview): TripStage {
-  const trip = data.trip as TripOverview["trip"] & {
-    state?: string | null;
-  };
-
-  return normalizeTripStage(trip.state);
+  return normalizeTripStage(data.trip.status);
 }
