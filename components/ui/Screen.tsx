@@ -6,11 +6,27 @@ type ScreenProps = PropsWithChildren<{
   title?: string;
   subtitle?: string;
   footer?: ReactNode;
+  topInset?: "default" | "none" | "sm";
 }>;
 
-export function Screen({ title, subtitle, children, footer }: ScreenProps) {
+export function Screen({
+  title,
+  subtitle,
+  children,
+  footer,
+  topInset = "default",
+}: ScreenProps) {
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        topInset === "none"
+          ? styles.containerNoTopInset
+          : topInset === "sm"
+            ? styles.containerSmallTopInset
+            : null,
+      ]}
+    >
       {title ? <Text style={styles.title}>{title}</Text> : null}
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       <View style={styles.content}>{children}</View>
@@ -25,6 +41,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.screenTop,
+  },
+  containerNoTopInset: {
+    paddingTop: 0,
+  },
+  containerSmallTopInset: {
+    paddingTop: spacing.sm,
   },
   title: {
     ...typography.title,

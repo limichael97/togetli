@@ -45,6 +45,23 @@ export async function createTripInvite(
   return { token: data?.token ?? token };
 }
 
+export async function countPendingTripInvites(tripId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("trip_invites")
+    .select("id, expires_at, max_uses, uses")
+    .eq("trip_id", tripId);
+
+  if (error) throw error;
+
+  const now = Date.now();
+  return (data ?? []).filter((invite) => {
+    const notExpired =
+      !invite.expires_at || new Date(invite.expires_at).getTime() > now;
+    const hasUsesRemaining = invite.uses < invite.max_uses;
+    return notExpired && hasUsesRemaining;
+  }).length;
+}
+
 export function buildTripInviteLink(token: string): string {
   return Linking.createURL("invite", { queryParams: { token } });
 }

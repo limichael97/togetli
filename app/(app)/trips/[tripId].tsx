@@ -8,36 +8,117 @@ import {
   Pressable,
   Alert,
   Share,
-  TextInput,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { getTripOverview, TripOverview } from "../../../lib/trips";
+import { getTripOverview, TripOverview, type TripRole, type TripType } from "../../../lib/trips";
 import { buildTripInviteLink, createTripInvite } from "../../../lib/invites";
 import { useAuthStore } from "../../../store/useAuthStore";
-import { createDateOption, deleteDateOption } from "../../../lib/dateOptions";
 import { checkIfUserResponded } from "../../../lib/polls";
 import { leaveTrip } from "../../../lib/members";
+import { getTripStage, isTripReady, type TripStage } from "../../../lib/tripState";
 
+const TRIP_TYPE_LABELS: Record<TripType, string> = {
+  bachelor: "Bachelor Trip",
+  bachelorette: "Bachelorette Trip",
+  joint: "Group Trip",
+};
+
+const ROLE_LABELS: Record<TripRole, string> = {
+  creator: "Creator",
+  planner: "Planner",
+  guest: "Guest",
+};
+
+const STAGE_LABELS: Record<TripStage, string> = {
+  draft: "Draft",
+  polling: "Poll Sent",
+  finalized: "Finalized",
+};
+
+function ProgressStep({
+  label,
+  complete,
+}: {
+  label: string;
+  complete: boolean;
+}) {
+  return (
+    <View style={styles.progressRow}>
+      <View style={[styles.progressDot, complete ? styles.progressDotComplete : null]} />
+      <Text style={[styles.progressLabel, complete ? styles.progressLabelComplete : null]}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  actionLabel,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  actionLabel?: string;
+  onPress?: () => void;
+}) {
+  return (
+    <View style={styles.summaryRow}>
+      <View style={styles.summaryTextBlock}>
+        <Text style={styles.summaryLabel}>{label}</Text>
+        <Text style={styles.summaryValue}>{value}</Text>
+      </View>
+      {actionLabel && onPress ? (
+        <Pressable
+          onPress={onPress}
+          style={({ pressed }) => [
+            styles.inlineAction,
+            pressed ? styles.inlineActionPressed : null,
+          ]}
+        >
+          <Text style={styles.inlineActionText}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 export default function TripDetailScreen() {
   const params = useLocalSearchParams();
   const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
   const router = useRouter();
+  const userId = useAuthStore((s) => s.userId);
 
   const [data, setData] = useState<TripOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteRole, setInviteRole] = useState<"guest" | "planner">("guest");
-  const [dateOptions, setDateOptions] = useState<TripOverview["dateOptions"]>([]);
-  const [showDateForm, setShowDateForm] = useState(false);
-  const [dateSaving, setDateSaving] = useState(false);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [dateLabel, setDateLabel] = useState("");
   const [hasResponded, setHasResponded] = useState(false);
   const [checkingResponse, setCheckingResponse] = useState(false);
-  const userId = useAuthStore((s) => s.userId);
+
+  useEffect(() => {
+    if (!tripId) return;
+
+    let mounted = true;
+
+    (async () => {
+      try {
+        setErrorMsg(null);
+        setLoading(true);
+        const res = await getTripOverview(tripId);
+        if (mounted) setData(res);
+      } catch (e: any) {
+        if (mounted) setErrorMsg(e?.message ?? "Failed to load trip");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [tripId]);
 
   useEffect(() => {
     if (!userId || !tripId) return;
@@ -56,12 +137,13 @@ export default function TripDetailScreen() {
         setCheckingResponse(true);
         const responded = await checkIfUserResponded(tripId, userId);
         if (active) setHasResponded(responded);
-      } catch (e) {
+      } catch {
         if (active) setHasResponded(false);
       } finally {
         if (active) setCheckingResponse(false);
       }
     })();
+
     return () => {
       active = false;
     };
@@ -82,7 +164,7 @@ export default function TripDetailScreen() {
 
     try {
       setInviteLoading(true);
-      const { token } = await createTripInvite(tripId, inviteRole);
+      const { token } = await createTripInvite(tripId, "guest");
       const link = buildTripInviteLink(token);
 
       Alert.alert("Invite link", link, [
@@ -96,55 +178,6 @@ export default function TripDetailScreen() {
     } finally {
       setInviteLoading(false);
     }
-  };
-
-  const handleAddDateOption = async () => {
-    if (!tripId) return;
-    if (!startDate.trim() || !endDate.trim()) {
-      Alert.alert("Missing dates", "Enter both start and end dates.");
-      return;
-    }
-
-    try {
-      setDateSaving(true);
-      const created = await createDateOption({
-        tripId,
-        startDate: startDate.trim(),
-        endDate: endDate.trim(),
-        label: dateLabel.trim(),
-      });
-      setDateOptions((prev) => [...prev, created].sort((a, b) =>
-        (a.start_date ?? "").localeCompare(b.start_date ?? "")
-      ));
-      setShowDateForm(false);
-      setStartDate("");
-      setEndDate("");
-      setDateLabel("");
-    } catch (e: any) {
-      console.error(e);
-      Alert.alert("Add failed", e?.message ?? String(e));
-    } finally {
-      setDateSaving(false);
-    }
-  };
-
-  const handleDeleteDateOption = async (id: string) => {
-    Alert.alert("Delete date option?", "This cannot be undone.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteDateOption(id);
-            setDateOptions((prev) => prev.filter((d) => d.id !== id));
-          } catch (e: any) {
-            console.error(e);
-            Alert.alert("Delete failed", e?.message ?? String(e));
-          }
-        },
-      },
-    ]);
   };
 
   const handleLeaveTrip = async () => {
@@ -166,34 +199,6 @@ export default function TripDetailScreen() {
       },
     ]);
   };
-
-  useEffect(() => {
-    if (!tripId) return;
-
-    let mounted = true;
-
-    (async () => {
-      try {
-        setErrorMsg(null);
-        setLoading(true);
-
-        const res = await getTripOverview(tripId);
-
-        if (mounted) {
-          setData(res);
-          setDateOptions(res.dateOptions);
-        }
-      } catch (e: any) {
-        if (mounted) setErrorMsg(e?.message ?? "Failed to load trip");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [tripId]);
 
   if (!tripId) {
     return (
@@ -227,32 +232,133 @@ export default function TripDetailScreen() {
     );
   }
 
-  const { trip, members, budgetOptions } = data;
+  const { trip, members, dateOptions, budgetOptions } = data;
   const myMember = members.find((m) => m.user_id === userId);
-  const canInvite = myMember?.role === "creator";
-  const canEditDates = myMember?.role === "creator" || myMember?.role === "planner";
+  const role = myMember?.role ?? "guest";
+  const roleLabel = ROLE_LABELS[role];
+  const tripTypeLabel = TRIP_TYPE_LABELS[trip.type];
   const pollSent = !!trip.poll_sent_at;
-  const roleLabel = myMember?.role
-    ? `${myMember.role[0].toUpperCase()}${myMember.role.slice(1)}`
-    : null;
-  const canViewResults = myMember?.role === "creator" || myMember?.role === "planner";
+  const isFinalized = !!trip.final_start_date && !!trip.final_end_date;
+  const canInvite = role === "creator";
+  const canViewResults = role === "creator" || role === "planner";
+  const plannerCount = members.filter((m) => m.role === "planner").length;
+  const guestCount = members.filter((m) => m.role === "guest").length;
+  const stage = getTripStage(data);
+  const draftReady = stage === "draft" && isTripReady(data);
+
+  const pollSummary = `${dateOptions.length} date option${dateOptions.length === 1 ? "" : "s"} • ${budgetOptions.length} budget option${budgetOptions.length === 1 ? "" : "s"}`;
+  const finalPlanSummary = isFinalized
+    ? `${trip.final_start_date} → ${trip.final_end_date}`
+    : "No final plan locked in yet.";
+
+  const statusSentence = (() => {
+    if (stage === "draft") {
+      if (draftReady) {
+        return role === "creator"
+          ? "Everything is ready. Review the poll and send it to the group."
+          : "The poll is almost ready. The creator can send it once details look good.";
+      }
+      return role === "creator"
+        ? "Add the essentials so the group has a clear poll to respond to."
+        : "The trip is being set up before the poll goes live.";
+    }
+    if (stage === "polling") {
+      return canViewResults
+        ? "Responses are coming in. Review the signal and move the plan forward."
+        : hasResponded
+          ? "Your response is in. The group plan will take shape from here."
+          : "The poll is live. Add your availability and budget preferences.";
+    }
+    return "The dates are locked in and the trip plan is ready to review.";
+  })();
+
+  const primaryAction = (() => {
+    if (role === "guest") {
+      if (pollSent && !hasResponded) {
+        return {
+          label: checkingResponse ? "Checking..." : "Fill Out Poll",
+          description: "Share your availability and budget so the group can finalize the trip.",
+          onPress: () => router.push(`/(app)/trips/${tripId}/poll`),
+          disabled: checkingResponse,
+        };
+      }
+      if (pollSent && hasResponded) {
+        return {
+          label: "You're All Set",
+          description: "You already responded. There’s nothing else you need to do right now.",
+          onPress: undefined,
+          disabled: true,
+        };
+      }
+      return {
+        label: "Awaiting Poll",
+        description: "The trip is still being prepared before guests can respond.",
+        onPress: undefined,
+        disabled: true,
+      };
+    }
+
+    if (stage === "draft") {
+      if (draftReady) {
+        return {
+          label: "Review & Send Poll",
+          description: "Your poll is ready. Give it one last pass and send it to the group.",
+          onPress: role === "creator" ? () => router.push(`/(app)/trips/${tripId}/setup`) : undefined,
+          disabled: role !== "creator",
+        };
+      }
+      return {
+        label: "Add Dates & Budget",
+        description: "Set the poll up so your group has something concrete to vote on.",
+        onPress: role === "creator" ? () => router.push(`/(app)/trips/${tripId}/setup`) : undefined,
+        disabled: role !== "creator",
+      };
+    }
+
+    if (stage === "polling") {
+      return {
+        label: "View Responses",
+        description: "See how the group is voting so you can decide the next step.",
+        onPress: canViewResults ? () => router.push(`/(app)/trips/${tripId}/poll-results`) : undefined,
+        disabled: !canViewResults,
+      };
+    }
+
+    return {
+      label: "View Itinerary",
+      description: "The dates are finalized. Review the confirmed trip window.",
+      onPress: () =>
+        Alert.alert(
+          "Final itinerary",
+          `${trip.final_start_date} → ${trip.final_end_date}`
+        ),
+      disabled: false,
+    };
+  })();
+
+  const metaLabel = tripTypeLabel.replace(" Trip", "") + " Trip";
+  const peopleSummary = `${members.length} active members • ${plannerCount} planner${plannerCount === 1 ? "" : "s"} • ${guestCount} guest${guestCount === 1 ? "" : "s"}`;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryTopRow}>
-          <View style={styles.summaryTextBlock}>
-            <Text style={styles.title}>{trip.title ?? "Untitled Trip"}</Text>
-            <Text style={styles.meta}>{trip.type}</Text>
+    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <View style={styles.heroCard}>
+        <Text style={styles.title}>{trip.title ?? "Untitled Trip"}</Text>
+        <Text style={styles.meta}>{metaLabel}</Text>
+        <View style={styles.badgeRow}>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleBadgeText}>{roleLabel}</Text>
           </View>
-          {roleLabel ? (
-            <View style={styles.roleBadge}>
-              <Text style={styles.roleBadgeText}>{roleLabel}</Text>
-            </View>
-          ) : null}
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusBadgeText}>{STAGE_LABELS[stage]}</Text>
+          </View>
         </View>
-
-        {myMember?.role && myMember.role !== "creator" ? (
+        <Text style={styles.statusSentence}>{statusSentence}</Text>
+        {isFinalized ? (
+          <Text style={styles.finalPlanText}>
+            {trip.final_start_date} → {trip.final_end_date}
+          </Text>
+        ) : null}
+        {role !== "creator" ? (
           <Pressable
             onPress={handleLeaveTrip}
             style={({ pressed }) => [
@@ -265,276 +371,237 @@ export default function TripDetailScreen() {
         ) : null}
       </View>
 
-      {myMember?.role === "creator" && !pollSent ? (
-        <Pressable
-          onPress={() => router.push(`/(app)/trips/${tripId}/setup`)}
-          style={({ pressed }) => [
-            styles.ctaButton,
-            pressed ? styles.ctaButtonPressed : null,
-          ]}
-        >
-          <Text style={styles.ctaButtonText}>Continue Setup</Text>
-        </Pressable>
-      ) : null}
-
-      {myMember?.role !== "creator" && pollSent ? (
-        hasResponded ? (
-          <Text style={styles.ctaInfo}>You’re all set.</Text>
-        ) : (
+      <View style={styles.primaryCard}>
+        <Text style={styles.primaryCardEyebrow}>Next Action</Text>
+        <Text style={styles.primaryCardTitle}>{primaryAction.label}</Text>
+        <Text style={styles.primaryCardBody}>{primaryAction.description}</Text>
+        {primaryAction.onPress ? (
           <Pressable
-            onPress={() => router.push(`/(app)/trips/${tripId}/poll`)}
+            onPress={primaryAction.onPress}
+            disabled={primaryAction.disabled}
             style={({ pressed }) => [
-              styles.ctaButton,
-              pressed ? styles.ctaButtonPressed : null,
+              styles.primaryCtaButton,
+              primaryAction.disabled ? styles.primaryCtaButtonDisabled : null,
+              pressed && !primaryAction.disabled ? styles.primaryCtaButtonPressed : null,
             ]}
-            disabled={checkingResponse}
           >
-            <Text style={styles.ctaButtonText}>
-              {checkingResponse ? "Checking..." : "Fill out poll"}
-            </Text>
+            <Text style={styles.primaryCtaButtonText}>{primaryAction.label}</Text>
           </Pressable>
-        )
-      ) : null}
-      {canViewResults && pollSent ? (
-        <Pressable
-          onPress={() => router.push(`/(app)/trips/${tripId}/poll-results`)}
-          style={({ pressed }) => [
-            styles.secondaryCtaButton,
-            pressed ? styles.secondaryCtaButtonPressed : null,
-          ]}
-        >
-          <Text style={styles.secondaryCtaButtonText}>View poll results</Text>
-        </Pressable>
-      ) : null}
+        ) : (
+          <Text style={styles.primaryCardHint}>No action needed right now.</Text>
+        )}
+      </View>
+
+      <View style={styles.sectionBlock}>
+        <Text style={styles.sectionHeading}>Trip Snapshot</Text>
+        <View style={styles.card}>
+          <SummaryRow
+            label="People"
+            value={peopleSummary}
+            actionLabel="Manage"
+            onPress={() => router.push(`/(app)/trips/${tripId}/members`)}
+          />
+          <View style={styles.divider} />
+          <SummaryRow
+            label="Poll"
+            value={pollSummary}
+            actionLabel={role === "creator" ? "Edit" : undefined}
+            onPress={role === "creator" ? () => router.push(`/(app)/trips/${tripId}/setup`) : undefined}
+          />
+        </View>
+      </View>
 
       {canInvite ? (
-        <>
-          <View style={styles.inviteRoleRow}>
-            <Text style={styles.inviteRoleLabel}>Invite as</Text>
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionHeading}>Invite</Text>
+          <View style={styles.card}>
             <Pressable
-              onPress={() => setInviteRole("guest")}
-              style={[
-                styles.inviteRoleOption,
-                inviteRole === "guest" ? styles.inviteRoleOptionActive : null,
+              onPress={handleInvite}
+              disabled={inviteLoading}
+              style={({ pressed }) => [
+                styles.cardButton,
+                inviteLoading ? styles.cardButtonDisabled : null,
+                pressed && !inviteLoading ? styles.cardButtonPressed : null,
               ]}
             >
-              <Text
-                style={[
-                  styles.inviteRoleOptionText,
-                  inviteRole === "guest" ? styles.inviteRoleOptionTextActive : null,
-                ]}
-              >
-                Guest
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setInviteRole("planner")}
-              style={[
-                styles.inviteRoleOption,
-                inviteRole === "planner" ? styles.inviteRoleOptionActive : null,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.inviteRoleOptionText,
-                  inviteRole === "planner" ? styles.inviteRoleOptionTextActive : null,
-                ]}
-              >
-                Planner
+              <Text style={styles.cardButtonText}>
+                {inviteLoading ? "Creating..." : "Invite People"}
               </Text>
             </Pressable>
           </View>
-
-          <Pressable
-            onPress={handleInvite}
-            disabled={inviteLoading}
-            style={({ pressed }) => [
-              styles.inviteBtn,
-              pressed && !inviteLoading ? styles.inviteBtnPressed : null,
-              inviteLoading ? styles.inviteBtnDisabled : null,
-            ]}
-          >
-            <Text style={styles.inviteBtnText}>
-              {inviteLoading ? "Creating invite..." : "Invite someone"}
-            </Text>
-          </Pressable>
-        </>
-      ) : null}
-
-
-      <Pressable
-        onPress={() => router.push(`/(app)/trips/${tripId}/members`)}
-        style={({ pressed }) => [
-          styles.section,
-          pressed ? styles.sectionPressed : null,
-        ]}
-      >
-        <Text style={styles.sectionTitle}>Members</Text>
-        <Text style={styles.sectionBody}>
-          {members.length} member{members.length === 1 ? "" : "s"}
-        </Text>
-      </Pressable>
-
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Date Options</Text>
-          {canEditDates ? (
-            <Pressable
-              onPress={() => setShowDateForm((v) => !v)}
-              style={({ pressed }) => [
-                styles.textButton,
-                pressed ? styles.textButtonPressed : null,
-              ]}
-            >
-              <Text style={styles.textButtonText}>
-                {showDateForm ? "Cancel" : "Add date option"}
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
-
-        {showDateForm ? (
-          <View style={styles.form}>
-            <TextInput
-              style={styles.input}
-              placeholder="Start date (YYYY-MM-DD)"
-              value={startDate}
-              onChangeText={setStartDate}
-              editable={!dateSaving}
-              autoCapitalize="none"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="End date (YYYY-MM-DD)"
-              value={endDate}
-              onChangeText={setEndDate}
-              editable={!dateSaving}
-              autoCapitalize="none"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Label (optional)"
-              value={dateLabel}
-              onChangeText={setDateLabel}
-              editable={!dateSaving}
-            />
-            <Pressable
-              onPress={handleAddDateOption}
-              disabled={dateSaving}
-              style={({ pressed }) => [
-                styles.primaryBtn,
-                pressed && !dateSaving ? styles.primaryBtnPressed : null,
-                dateSaving ? styles.primaryBtnDisabled : null,
-              ]}
-            >
-              <Text style={styles.primaryBtnText}>
-                {dateSaving ? "Saving..." : "Save date option"}
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {dateOptions.length === 0 ? (
-          <Text style={styles.sectionBody}>None yet.</Text>
-        ) : (
-          dateOptions.map((d) => (
-            <View key={d.id} style={styles.optionRow}>
-              <Text style={styles.item}>
-                {d.label ? `${d.label}: ` : ""}{d.start_date} → {d.end_date}
-              </Text>
-              {canEditDates ? (
-                <Pressable
-                  onPress={() => handleDeleteDateOption(d.id)}
-                  style={({ pressed }) => [
-                    styles.deleteBtn,
-                    pressed ? styles.deleteBtnPressed : null,
-                  ]}
-                >
-                  <Text style={styles.deleteBtnText}>Delete</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ))
-        )}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Budget Options</Text>
-        {budgetOptions.length === 0 ? (
-          <Text style={styles.sectionBody}>None yet.</Text>
-        ) : (
-          budgetOptions.map((b) => (
-            <Text key={b.id} style={styles.item}>
-              {b.type.toUpperCase()}: {b.label}{b.is_any ? " (any)" : ""}
-            </Text>
-          ))
-        )}
-      </View>
+      ) : null}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, paddingTop: 16, paddingBottom: 32 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  summaryCard: {
+  container: {
     padding: 20,
-    borderRadius: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
+    gap: 16,
+  },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  empty: { color: "#666" },
+  error: { color: "tomato" },
+
+  heroCard: {
+    padding: 20,
+    borderRadius: 24,
     backgroundColor: "#f8f8f8",
     borderWidth: 1,
     borderColor: "#ececec",
-    marginBottom: 8,
   },
-  summaryTopRow: {
+  title: { fontSize: 28, fontWeight: "700", letterSpacing: -0.3, color: "#111" },
+  meta: { marginTop: 6, color: "#666", fontSize: 15 },
+  badgeRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 16,
   },
-  summaryTextBlock: { flex: 1 },
-  title: { fontSize: 28, fontWeight: "700", letterSpacing: -0.3 },
-  meta: { marginTop: 6, color: "#666", fontSize: 15, textTransform: "capitalize" },
   roleBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: "#111",
   },
-  roleBadgeText: { color: "white", fontWeight: "600", fontSize: 12 },
-  section: { marginTop: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#eee" },
-  sectionPressed: { opacity: 0.7 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8 },
-  sectionBody: { color: "#666" },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
+  roleBadgeText: { color: "#fff", fontWeight: "600", fontSize: 12 },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#ececec",
   },
-  item: { paddingVertical: 4, color: "#333" },
-  optionRow: {
-    paddingVertical: 4,
+  statusBadgeText: { color: "#333", fontWeight: "600", fontSize: 12 },
+  statusSentence: {
+    marginTop: 14,
+    color: "#555",
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  leaveBtn: {
+    marginTop: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    alignSelf: "flex-start",
+  },
+  leaveBtnText: { color: "#333", fontWeight: "600" },
+  leaveBtnPressed: { opacity: 0.7 },
+
+  primaryCard: {
+    padding: 20,
+    borderRadius: 20,
+    backgroundColor: "#111",
+  },
+  primaryCardEyebrow: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  primaryCardTitle: {
+    marginTop: 8,
+    color: "#fff",
+    fontSize: 24,
+    fontWeight: "700",
+  },
+  primaryCardBody: {
+    marginTop: 10,
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  primaryCtaButton: {
+    marginTop: 18,
+    backgroundColor: "#fff",
+    paddingVertical: 14,
+    borderRadius: 999,
+  },
+  primaryCtaButtonText: {
+    color: "#111",
+    textAlign: "center",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  primaryCtaButtonPressed: { opacity: 0.8 },
+  primaryCtaButtonDisabled: { opacity: 0.45 },
+  primaryCardHint: {
+    marginTop: 18,
+    color: "rgba(255,255,255,0.7)",
+  },
+
+  sectionBlock: {
+    gap: 12,
+  },
+  sectionHeading: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111",
+  },
+
+  card: {
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#ececec",
+    backgroundColor: "#fff",
+    gap: 12,
+  },
+  cardBody: {
+    color: "#555",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#efefef",
+  },
+  summaryRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
-  empty: { color: "#666" },
-  error: { color: "tomato" },
-  inviteBtn: {
-    marginTop: 16,
-    backgroundColor: "black",
-    paddingVertical: 12,
-    borderRadius: 999,
+  summaryTextBlock: {
+    flex: 1,
+    gap: 4,
   },
-  inviteBtnText: { color: "white", textAlign: "center", fontWeight: "600" },
-  inviteBtnPressed: { opacity: 0.7 },
-  inviteBtnDisabled: { opacity: 0.5 },
+  summaryLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#666",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  summaryValue: {
+    fontSize: 15,
+    lineHeight: 20,
+    color: "#111",
+  },
+  inlineAction: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+  },
+  inlineActionText: {
+    color: "#111",
+    fontWeight: "600",
+  },
+  inlineActionPressed: { opacity: 0.7 },
+
   inviteRoleRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 8,
-    marginTop: 16,
   },
   inviteRoleLabel: { color: "#666", marginRight: 4 },
   inviteRoleOption: {
@@ -544,68 +611,58 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
   },
-  inviteRoleOptionActive: { backgroundColor: "black", borderColor: "black" },
+  inviteRoleOptionActive: { backgroundColor: "#111", borderColor: "#111" },
   inviteRoleOptionText: { color: "#333", fontWeight: "500" },
-  inviteRoleOptionTextActive: { color: "white" },
-  form: { marginBottom: 12, gap: 8 },
-  input: {
+  inviteRoleOptionTextActive: { color: "#fff" },
+  cardButton: {
+    marginTop: 2,
+    backgroundColor: "#111",
+    paddingVertical: 12,
+    borderRadius: 999,
+  },
+  cardButtonText: {
+    color: "#fff",
+    textAlign: "center",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  cardButtonPressed: { opacity: 0.8 },
+  cardButtonDisabled: { opacity: 0.5 },
+
+  progressCard: {
+    padding: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: "#ececec",
+    backgroundColor: "#fff",
+    gap: 12,
+  },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  progressDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: "#d5d5d5",
+  },
+  progressDotComplete: {
+    backgroundColor: "#111",
+  },
+  progressLabel: {
+    color: "#666",
     fontSize: 14,
   },
-  primaryBtn: {
-    marginTop: 4,
-    backgroundColor: "black",
-    paddingVertical: 12,
-    borderRadius: 999,
+  progressLabelComplete: {
+    color: "#111",
+    fontWeight: "600",
   },
-  primaryBtnText: { color: "white", textAlign: "center", fontWeight: "600" },
-  primaryBtnPressed: { opacity: 0.7 },
-  primaryBtnDisabled: { opacity: 0.5 },
-  textButton: { paddingVertical: 4, paddingHorizontal: 6 },
-  textButtonText: { color: "#111", fontWeight: "600" },
-  textButtonPressed: { opacity: 0.7 },
-  deleteBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#eee",
-  },
-  deleteBtnText: { color: "#333", fontSize: 12 },
-  deleteBtnPressed: { opacity: 0.7 },
-  ctaButton: {
-    marginTop: 16,
-    backgroundColor: "black",
-    paddingVertical: 12,
-    borderRadius: 999,
-  },
-  ctaButtonText: { color: "white", textAlign: "center", fontWeight: "600" },
-  ctaButtonPressed: { opacity: 0.7 },
-  ctaInfo: { marginTop: 12, color: "#666" },
-  secondaryCtaButton: {
-    marginTop: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#eee",
-    alignSelf: "flex-start",
-  },
-  secondaryCtaButtonText: { color: "#333", fontWeight: "600" },
-  secondaryCtaButtonPressed: { opacity: 0.7 },
-  leaveBtn: {
-    marginTop: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#eee",
-    alignSelf: "flex-start",
-  },
-  leaveBtnText: { color: "#333", fontWeight: "600" },
-  leaveBtnPressed: { opacity: 0.7 },
+  finalPlanText: {
+  marginTop: 12,
+  color: "#111",
+  fontSize: 16,
+  fontWeight: "600",
+},
 });
