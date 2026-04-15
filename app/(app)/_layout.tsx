@@ -40,6 +40,7 @@ export default function AppLayout() {
       />
       <Stack.Screen name="trips/[tripId]/members" options={{ title: "Members" }} />
       <Stack.Screen name="trips/[tripId]/setup" options={{ title: "Trip Setup" }} />
+      <Stack.Screen name="trips/[tripId]/invite" options={{ title: "Invite" }} />
       <Stack.Screen name="trips/[tripId]/poll" options={{ title: "Trip Poll" }} />
       <Stack.Screen
         name="trips/[tripId]/poll-results"

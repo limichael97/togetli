@@ -23,7 +23,7 @@ export async function getTripSetupData(tripId: string): Promise<{
   const { data: trip, error: tripError } = await supabase
     .from("trips")
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, mode, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
     .eq("id", tripId)
     .single();
@@ -121,10 +121,31 @@ export async function markPollSent(tripId: string) {
   const { error } = await supabase
     .from("trips")
     .update({
+      mode: "poll",
       status: "polling",
       poll_sent_at: new Date().toISOString(),
     })
     .eq("id", tripId);
+  if (error) throw error;
+}
+
+export async function markTripPlanned(params: {
+  tripId: string;
+  finalStartDate?: string | null;
+  finalEndDate?: string | null;
+}) {
+  const hasFinalDates = !!params.finalStartDate && !!params.finalEndDate;
+  const { error } = await supabase
+    .from("trips")
+    .update({
+      mode: "planned",
+      status: hasFinalDates ? "finalized" : "draft",
+      final_start_date: params.finalStartDate ?? null,
+      final_end_date: params.finalEndDate ?? null,
+      poll_sent_at: null,
+    })
+    .eq("id", params.tripId);
+
   if (error) throw error;
 }
 
@@ -174,6 +195,19 @@ export async function checkIfUserResponded(tripId: string, userId: string) {
     .maybeSingle();
   if (error) throw error;
   return !!data;
+}
+
+export async function listPollResponderUserIds(tripId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("poll_responses")
+    .select("user_id")
+    .eq("trip_id", tripId);
+
+  if (error) throw error;
+
+  return Array.from(
+    new Set((data ?? []).map((row) => row.user_id).filter(Boolean))
+  ) as string[];
 }
 
 export type PollResponseRow = {

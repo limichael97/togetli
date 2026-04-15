@@ -3,7 +3,22 @@ import { View, Text, StyleSheet, ActivityIndicator, Pressable, ScrollView, Alert
 import { useLocalSearchParams } from "expo-router";
 import { listTripMembers, removeTripMember, updateTripMemberRole } from "../../../../lib/members";
 import { useAuthStore } from "../../../../store/useAuthStore";
-import type { TripMemberRow, TripRole } from "../../../../lib/trips";
+import {
+  getTripMemberDisplayName,
+  type TripMemberRow,
+  type TripRole,
+} from "../../../../lib/trips";
+
+function getInitials(name: string) {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (parts.length === 0) return "?";
+  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
 
 export default function TripMembersScreen() {
   const params = useLocalSearchParams();
@@ -35,11 +50,7 @@ export default function TripMembersScreen() {
   }, [tripId]);
 
   const myMember = members.find((m) => m.user_id === userId);
-  const canManage = myMember?.role === "creator";
-  const getMemberName = (member: TripMemberRow) =>
-    member.profiles?.display_name?.trim() ||
-    member.profiles?.full_name?.trim() ||
-    member.user_id;
+  const canManage = myMember?.role === "creator" || myMember?.role === "planner";
 
   const setRole = async (member: TripMemberRow, role: Exclude<TripRole, "creator">) => {
     if (!tripId) return;
@@ -123,11 +134,19 @@ export default function TripMembersScreen() {
         members.map((m) => {
           const isCreator = m.role === "creator";
           const isUpdating = updatingUserId === m.user_id;
+          const displayName = getTripMemberDisplayName(m);
           return (
             <View key={m.user_id} style={styles.memberRow}>
               <View style={styles.memberInfo}>
-                <Text style={styles.memberName}>{getMemberName(m)}</Text>
-                <Text style={styles.memberRole}>{m.role}</Text>
+                <View style={styles.memberIdentityRow}>
+                  <View style={styles.memberPill}>
+                    <Text style={styles.memberPillText}>{getInitials(displayName)}</Text>
+                  </View>
+                  <View style={styles.memberTextBlock}>
+                    <Text style={styles.memberName}>{displayName}</Text>
+                    <Text style={styles.memberRole}>{m.role}</Text>
+                  </View>
+                </View>
               </View>
 
               {canManage && !isCreator ? (
@@ -201,6 +220,25 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   memberInfo: { gap: 4 },
+  memberIdentityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  memberPill: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    backgroundColor: "#111",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberPillText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  memberTextBlock: { gap: 4, flex: 1 },
   memberName: { fontSize: 14, color: "#333" },
   memberRole: { fontSize: 12, color: "#666" },
   actionsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

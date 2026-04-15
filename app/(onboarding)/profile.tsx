@@ -61,7 +61,7 @@ export default function OnboardingProfileScreen() {
 
       if (error) throw error;
 
-      router.replace("/(app)/home");
+      router.replace("/(tabs)/trips");
     } catch (e: any) {
       Alert.alert("Could not save profile", e?.message ?? String(e));
     } finally {

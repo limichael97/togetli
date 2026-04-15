@@ -8,6 +8,7 @@ export type TripType = "bachelor" | "bachelorette" | "joint";
 export type PlanningMode = "planner_decides" | "group_vote" | "creator_decides";
 
 export type TripRole = "creator" | "planner" | "guest";
+export type TripMode = "poll" | "planned";
 export type TripLifecycleStatus = Database["public"]["Tables"]["trips"]["Row"]["status"];
 export interface DateOptionInput {
   startDate: string; // 'YYYY-MM-DD'
@@ -17,6 +18,7 @@ export interface DateOptionInput {
 
 export interface CreateTripInput {
   type: TripType;
+  mode?: TripMode;
   title?: string;
   tripLengthDays: number;
   planningMode: PlanningMode;
@@ -40,6 +42,7 @@ export async function createTrip(input: CreateTripInput) {
 
   const {
     type,
+    mode = "poll",
     title,
     tripLengthDays,
     planningMode,
@@ -63,13 +66,14 @@ export async function createTrip(input: CreateTripInput) {
       type,
       title: title ?? null,
       trip_length_days: tripLengthDays,
+      mode,
       planning_mode: planningMode,
       hide_from_creator: hideFromCreator,
       notes: notes ?? null,
       custom_poll_questions: customQuestions,
     })
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, mode, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
     .single();
   if (tripError) {
@@ -142,6 +146,7 @@ export type TripRow = {
   type: TripType;
   title: string | null;
   trip_length_days: number | null;
+  mode: TripMode | string;
   final_start_date: string | null;
   final_end_date: string | null;
   poll_sent_at: string | null;
@@ -153,7 +158,7 @@ export async function listTripsByOwner(userId: string) {
   const { data, error } = await supabase
     .from("trips")
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, mode, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
     .eq("created_by", userId)
     .order("created_at", { ascending: false });
@@ -167,7 +172,7 @@ export async function getTripById(tripId: string) {
   const { data, error } = await supabase
     .from("trips")
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, mode, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
 
     .eq("id", tripId)
@@ -182,11 +187,14 @@ export type TripMemberRow = {
   role: TripRole;
   is_active: boolean;
   created_at: string;
+  invited_email?: string | null;
+  invited_name?: string | null;
   profiles?: {
     id: string;
     full_name: string | null;
     display_name: string | null;
     avatar_url: string | null;
+    email?: string | null;
   } | null;
 };
 
@@ -195,36 +203,73 @@ type RawTripMemberRow = {
   role: TripRole;
   is_active: boolean;
   created_at: string;
-  profiles?:
-    | {
-        id: string;
-        full_name: string | null;
-        display_name: string | null;
-        avatar_url: string | null;
-      }
-    | {
-        id: string;
-        full_name: string | null;
-        display_name: string | null;
-        avatar_url: string | null;
-      }[]
-    | null;
+  invited_email?: string | null;
+  invited_name?: string | null;
 };
 
 export function normalizeTripMemberRows(rows: RawTripMemberRow[] | null | undefined): TripMemberRow[] {
   return (rows ?? []).map((row) => {
-    const profile = Array.isArray(row.profiles)
-      ? row.profiles[0] ?? null
-      : row.profiles ?? null;
-
     return {
       user_id: row.user_id,
       role: row.role,
       is_active: row.is_active,
       created_at: row.created_at,
-      profiles: profile,
+      invited_email: row.invited_email ?? null,
+      invited_name: row.invited_name ?? null,
+      profiles: null,
     };
   });
+}
+
+async function attachTripMemberProfiles(
+  members: TripMemberRow[]
+): Promise<TripMemberRow[]> {
+  const userIds = Array.from(
+    new Set(members.map((member) => member.user_id).filter(Boolean))
+  );
+
+  if (userIds.length === 0) return members;
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, full_name, display_name, avatar_url")
+    .in("id", userIds);
+
+  if (profileError) throw profileError;
+
+  const profileById = new Map(
+    (profiles ?? []).map((profile) => [profile.id, profile])
+  );
+
+  return members.map((member) => ({
+    ...member,
+    profiles: profileById.get(member.user_id) ?? null,
+  }));
+}
+
+export function getTripMemberDisplayName(member: TripMemberRow): string {
+  const fullName = member.profiles?.full_name?.trim();
+  if (fullName) return fullName;
+
+  const displayName = member.profiles?.display_name?.trim();
+  if (displayName) return displayName;
+
+  const invitedName = member.invited_name?.trim();
+  if (invitedName) return invitedName;
+
+  const email =
+   member.invited_email?.trim() || null;
+  const emailLocalPart = email?.split("@")[0]?.trim();
+  if (emailLocalPart) return emailLocalPart;
+
+  const readableFallback =
+    member.role === "creator"
+      ? "Trip creator"
+      : member.role === "planner"
+        ? "Trip planner"
+        : "Trip member";
+
+  return `${readableFallback} (${member.user_id.slice(0, 6)})`;
 }
 
 export type TripDateOptionRow = {
@@ -257,7 +302,7 @@ export async function getTripOverview(tripId: string): Promise<TripOverview> {
   const { data: trip, error: tripError } = await supabase
     .from("trips")
     .select(
-      "id, created_by, creator_id, type, title, trip_length_days, final_start_date, final_end_date, poll_sent_at, status, created_at"
+      "id, created_by, creator_id, type, title, trip_length_days, mode, final_start_date, final_end_date, poll_sent_at, status, created_at"
     )
 
     .eq("id", tripId)
@@ -269,13 +314,17 @@ export async function getTripOverview(tripId: string): Promise<TripOverview> {
   const { data: members, error: memError } = await supabase
     .from("trip_members")
     .select(
-      "user_id, role, is_active, created_at, profiles:profiles!trip_members_user_id_fkey(id, full_name, display_name, avatar_url)"
+      "user_id, role, is_active, created_at, invited_email, invited_name"
     )
     .eq("trip_id", tripId)
     .eq("is_active", true)
     .order("created_at", { ascending: true });
 
   if (memError) throw memError;
+  const normalizedMembers = normalizeTripMemberRows(
+    members as RawTripMemberRow[] | null | undefined
+  );
+  const membersWithProfiles = await attachTripMemberProfiles(normalizedMembers);
 
   // 3) Date options
   const { data: dateOptions, error: dateError } = await supabase
@@ -297,7 +346,7 @@ export async function getTripOverview(tripId: string): Promise<TripOverview> {
 
   return {
     trip: trip as TripRow,
-    members: normalizeTripMemberRows(members as RawTripMemberRow[] | null | undefined),
+    members: membersWithProfiles,
     dateOptions: (dateOptions ?? []) as TripDateOptionRow[],
     budgetOptions: (budgetOptions ?? []) as TripBudgetOptionRow[],
   };
@@ -316,6 +365,7 @@ export async function listMyTrips(userId: string) {
         type,
         title,
         trip_length_days,
+        mode,
         final_start_date,
         final_end_date,
         poll_sent_at,

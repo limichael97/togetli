@@ -10,7 +10,12 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuthStore } from "../../../../store/useAuthStore";
-import { getTripSetupData, upsertPollResponse } from "../../../../lib/polls";
+import {
+  getTripSetupData,
+  listPollResponses,
+  upsertPollResponse,
+} from "../../../../lib/polls";
+import { getTripStage } from "../../../../lib/tripState";
 
 export default function TripPollScreen() {
   const params = useLocalSearchParams();
@@ -32,8 +37,12 @@ export default function TripPollScreen() {
   const [selectedDateIds, setSelectedDateIds] = useState<string[]>([]);
   const [selectedFlightBudgetId, setSelectedFlightBudgetId] = useState<string | null>(null);
   const [selectedLodgingBudgetId, setSelectedLodgingBudgetId] = useState<string | null>(null);
-  const [pollSent, setPollSent] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
   const [isCreator, setIsCreator] = useState(false);
+  const [isPlanner, setIsPlanner] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [dateVoteCounts, setDateVoteCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!tripId) return;
@@ -44,12 +53,22 @@ export default function TripPollScreen() {
         setErrorMsg(null);
         setLoading(true);
         const res = await getTripSetupData(tripId);
+        const pollResponses = await listPollResponses(tripId);
         if (!mounted) return;
         setDateOptions(res.dateOptions);
         setBudgetOptions(res.budgetOptions);
-        setPollSent(!!res.trip.poll_sent_at);
+        setIsPolling(getTripStage(res) === "polling");
         const member = res.members.find((m) => m.user_id === userId);
         setIsCreator(member?.role === "creator");
+        setIsPlanner(member?.role === "planner");
+        setIsGuest(member?.role === "guest");
+        const counts: Record<string, number> = {};
+        pollResponses.forEach((response) => {
+          response.available_date_option_ids?.forEach((dateId) => {
+            counts[dateId] = (counts[dateId] ?? 0) + 1;
+          });
+        });
+        setDateVoteCounts(counts);
       } catch (e: any) {
         if (mounted) setErrorMsg(e?.message ?? "Failed to load poll");
       } finally {
@@ -90,9 +109,11 @@ export default function TripPollScreen() {
     () => budgetOptions.find((b) => b.id === selectedLodgingBudgetId) ?? null,
     [budgetOptions, selectedLodgingBudgetId]
   );
+  const selectedCount = selectedDateIds.length;
+  const canSubmitAvailability = selectedCount > 0 && !submitting;
 
   const handleSubmit = async () => {
-    if (!tripId || !userId) return;
+    if (!tripId || !userId || selectedDateIds.length === 0) return;
     try {
       setSubmitting(true);
       await upsertPollResponse({
@@ -102,7 +123,7 @@ export default function TripPollScreen() {
         flightBudgetLabel: selectedFlightBudget?.label ?? null,
         lodgingBudgetLabel: selectedLodgingBudget?.label ?? null,
       });
-      router.replace(`/(app)/trips/${tripId}`);
+      setSubmitted(true);
     } catch (e: any) {
       Alert.alert("Submit failed", e?.message ?? String(e));
     } finally {
@@ -134,18 +155,40 @@ export default function TripPollScreen() {
     );
   }
 
-  if (!pollSent) {
+  if (!isPolling) {
     return (
       <View style={styles.center}>
-        <Text style={styles.error}>Poll not sent yet.</Text>
+        <Text style={styles.error}>Poll not open yet.</Text>
       </View>
     );
   }
 
-  if (isCreator) {
+  const canRespondToPoll = isPlanner || isGuest;
+
+  if (!canRespondToPoll) {
     return (
       <View style={styles.center}>
         <Text style={styles.error}>Creators don’t fill out this poll.</Text>
+      </View>
+    );
+  }
+
+  if (submitted) {
+    return (
+      <View style={styles.centerCardWrap}>
+        <View style={styles.confirmationCard}>
+          <Text style={styles.confirmationTitle}>You're all set</Text>
+          <Text style={styles.confirmationBody}>Waiting on others.</Text>
+          <Pressable
+            onPress={() => router.replace(`/(tabs)/trips/${tripId}`)}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              pressed ? styles.primaryBtnPressed : null,
+            ]}
+          >
+            <Text style={styles.primaryBtnText}>Back to Trip</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -158,19 +201,56 @@ export default function TripPollScreen() {
       {step === 1 ? (
         <>
           <Text style={styles.sectionTitle}>Which weekends work for you?</Text>
-          <View style={styles.chipRow}>
+          <Text style={styles.helperText}>Select all dates that work for you.</Text>
+          <View style={styles.dateCardList}>
             {dateOptions.map((d) => {
               const active = selectedDateIds.includes(d.id);
+              const voteCount = dateVoteCounts[d.id] ?? 0;
               return (
                 <Pressable
                   key={d.id}
                   onPress={() => toggleDate(d.id)}
-                  style={[styles.chip, active ? styles.chipActive : null]}
+                  style={[
+                    styles.dateCard,
+                    active ? styles.dateCardActive : null,
+                  ]}
                 >
-                  <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
-                    {d.label ? `${d.label}: ` : ""}
-                    {d.start_date} → {d.end_date}
-                  </Text>
+                  <View style={styles.dateCardRow}>
+                    <View style={styles.dateCardTextBlock}>
+                      <Text
+                        style={[
+                          styles.dateCardTitle,
+                          active ? styles.dateCardTitleActive : null,
+                        ]}
+                      >
+                        {d.label ? `${d.label}: ` : ""}
+                        {d.start_date} → {d.end_date}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.dateCardVotes,
+                          active ? styles.dateCardVotesActive : null,
+                        ]}
+                      >
+                        {voteCount} vote{voteCount === 1 ? "" : "s"}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.selectionBadge,
+                        active ? styles.selectionBadgeActive : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.selectionBadgeText,
+                          active ? styles.selectionBadgeTextActive : null,
+                        ]}
+                      >
+                        {active ? "✓" : ""}
+                      </Text>
+                    </View>
+                  </View>
                 </Pressable>
               );
             })}
@@ -273,10 +353,17 @@ export default function TripPollScreen() {
           <View />
         )}
 
+        {step === 3 ? (
+          <Text style={styles.selectionCount}>{selectedCount} selected</Text>
+        ) : null}
+
         <Pressable
           onPress={() => (step === 3 ? handleSubmit() : setStep((s) => (s + 1) as 2 | 3))}
-          style={styles.primaryBtn}
-          disabled={submitting}
+          style={[
+            styles.primaryBtn,
+            step === 3 && !canSubmitAvailability ? styles.primaryBtnDisabled : null,
+          ]}
+          disabled={step === 3 ? !canSubmitAvailability : submitting}
         >
           <Text style={styles.primaryBtnText}>
             {submitting ? "Submitting..." : step === 3 ? "Submit Availability" : "Next"}
@@ -290,12 +377,53 @@ export default function TripPollScreen() {
 const styles = StyleSheet.create({
   container: { padding: 24 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  centerCardWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
   stepText: { color: "#666", marginBottom: 8 },
   sectionTitle: { fontSize: 16, fontWeight: "700", marginTop: 16, marginBottom: 8 },
+  helperText: { color: "#666", marginBottom: 10, lineHeight: 20 },
   subTitle: { color: "#666", marginTop: 8, marginBottom: 6 },
   muted: { color: "#666" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  dateCardList: { gap: 10 },
+  dateCard: {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    backgroundColor: "#fff",
+  },
+  dateCardActive: {
+    borderColor: "#111",
+    backgroundColor: "#111",
+  },
+  dateCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  dateCardTextBlock: { flex: 1, gap: 4 },
+  dateCardTitle: { color: "#111", fontWeight: "600", fontSize: 15, lineHeight: 20 },
+  dateCardTitleActive: { color: "#fff" },
+  dateCardVotes: { color: "#666", fontSize: 13 },
+  dateCardVotesActive: { color: "rgba(255,255,255,0.78)" },
+  selectionBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#d0d0d0",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  selectionBadgeActive: {
+    borderColor: "#fff",
+    backgroundColor: "#fff",
+  },
+  selectionBadgeText: { color: "#fff", fontWeight: "700" },
+  selectionBadgeTextActive: { color: "#111" },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -314,6 +442,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 8,
   },
+  primaryBtnDisabled: { opacity: 0.45 },
+  primaryBtnPressed: { opacity: 0.82 },
   primaryBtnText: { color: "white", fontWeight: "600" },
   secondaryBtn: {
     paddingVertical: 12,
@@ -329,7 +459,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  selectionCount: { color: "#666", fontWeight: "600" },
   reviewLine: { color: "#333", marginBottom: 4 },
   reviewLabel: { marginTop: 8, color: "#666" },
+  confirmationCard: {
+    width: "100%",
+    padding: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#ececec",
+    backgroundColor: "#fff",
+    gap: 12,
+  },
+  confirmationTitle: { fontSize: 24, fontWeight: "700", color: "#111" },
+  confirmationBody: { color: "#666", fontSize: 15, lineHeight: 21 },
   error: { color: "tomato" },
 });

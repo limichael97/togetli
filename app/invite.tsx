@@ -26,11 +26,11 @@ export default function InviteAcceptScreen() {
 
         setStatus("Accepting invite…");
         await acceptTripInvite(String(token));
-        router.replace("/(app)/trips");
+        router.replace("/(tabs)/trips");
       } catch (e: any) {
         if (!active) return;
         Alert.alert("Invite failed", e?.message ?? String(e));
-        router.replace("/(app)/trips");
+        router.replace("/(tabs)/trips");
       }
     })();
 

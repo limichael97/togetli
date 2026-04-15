@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet, TextInput, Pressable, Alert } from "react-native";
 import { supabase } from "../../supabaseClient";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { ensureProfileIdentity } from "../../lib/profile";
 
 
 export default function SignInScreen() {
@@ -34,7 +35,7 @@ export default function SignInScreen() {
 
     setLoading(true);
     try {
-      const { error } =
+      const { data: authData, error } =
         mode === "sign-in"
           ? await supabase.auth.signInWithPassword({
               email: trimmedEmail,
@@ -49,10 +50,16 @@ export default function SignInScreen() {
         throw error;
       }
 
+      const userId = authData.user?.id ?? authData.session?.user?.id;
+      const userEmail = authData.user?.email ?? authData.session?.user?.email ?? trimmedEmail;
+      if (userId) {
+        await ensureProfileIdentity(userId, userEmail);
+      }
+
       if (inviteToken) {
         router.replace({ pathname: "/invite", params: { token: inviteToken } });
       } else {
-        router.replace("/(app)/home");
+        router.replace("/(tabs)/trips");
       }
 
     } catch (e: any) {

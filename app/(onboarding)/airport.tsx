@@ -22,7 +22,7 @@ export default function OnboardingAirportScreen() {
       });
       if (error) throw error;
 
-      router.replace("/(app)/home");
+      router.replace("/(tabs)/trips");
     } catch (e: any) {
       Alert.alert("Could not save airport", e?.message ?? String(e));
     } finally {

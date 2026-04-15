@@ -17,7 +17,7 @@ export default function TripPollResultsScreen() {
   const [responses, setResponses] = useState<
     { available_date_option_ids: string[] | null; flight_budget_label: string | null; lodging_budget_label: string | null }[]
   >([]);
-  const [canView, setCanView] = useState(false);
+  const [canManageTrip, setCanManageTrip] = useState(false);
 
   useEffect(() => {
     if (!tripId) return;
@@ -30,7 +30,9 @@ export default function TripPollResultsScreen() {
         const res = await getTripSetupData(tripId);
         if (!mounted) return;
         const member = res.members.find((m) => m.user_id === userId);
-        setCanView(member?.role === "creator" || member?.role === "planner");
+        setCanManageTrip(
+          member?.role === "creator" || member?.role === "planner"
+        );
         setDateOptions(res.dateOptions);
 
         const pollRows = await listPollResponses(tripId);
@@ -112,7 +114,7 @@ export default function TripPollResultsScreen() {
     );
   }
 
-  if (!canView) {
+  if (!canManageTrip) {
     return (
       <View style={styles.center}>
         <Text style={styles.error}>Only planners and creators can view results.</Text>

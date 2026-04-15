@@ -1,8 +1,19 @@
-import type { TripOverview } from "./trips";
+import type { TripMode, TripOverview } from "./trips";
 
 export type TripStage = "draft" | "polling" | "finalized";
 
-function normalizeTripStage(value: string | null | undefined): TripStage {
+function normalizeTripStage(
+  mode: TripMode | string | null | undefined,
+  value: TripOverview["trip"]["status"] | null | undefined
+): TripStage {
+  if (value === "finalized") {
+    return "finalized";
+  }
+
+  if (mode === "planned") {
+    return "draft";
+  }
+
   if (value === "polling" || value === "finalized") {
     return value;
   }
@@ -14,5 +25,9 @@ export function isTripReady(data: TripOverview): boolean {
 }
 
 export function getTripStage(data: TripOverview): TripStage {
-  return normalizeTripStage(data.trip.status);
+  return normalizeTripStage(data.trip.mode, data.trip.status);
+}
+
+export function isPollTrip(mode: TripMode | string | null | undefined): boolean {
+  return mode !== "planned";
 }

@@ -19,7 +19,7 @@ export default function OnboardingLayout() {
     // Profile complete -> app
     const complete = !!profile?.full_name?.trim() || !!profile?.display_name?.trim();
     if (complete) {
-      router.replace("/(app)/home");
+      router.replace("/(tabs)/trips");
       return;
     }
   }, [session, authLoading, profile, profileLoading]);

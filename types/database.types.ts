@@ -590,6 +590,7 @@ export type Database = {
           final_start_date: string | null
           hide_from_creator: boolean
           id: string
+          mode: string
           notes: string | null
           planning_mode: string
           poll_sent_at: string | null
@@ -610,6 +611,7 @@ export type Database = {
           final_start_date?: string | null
           hide_from_creator?: boolean
           id?: string
+          mode?: string
           notes?: string | null
           planning_mode: string
           poll_sent_at?: string | null
@@ -630,6 +632,7 @@ export type Database = {
           final_start_date?: string | null
           hide_from_creator?: boolean
           id?: string
+          mode?: string
           notes?: string | null
           planning_mode?: string
           poll_sent_at?: string | null

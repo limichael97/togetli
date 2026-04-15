@@ -44,7 +44,7 @@ export default function RootLayout() {
           if (error) throw error;
 
           console.log("[DeepLink handler] session set ✅");
-          router.replace("/(app)/home");
+          router.replace("/(tabs)/trips");
           return;
         }
 
@@ -54,7 +54,7 @@ export default function RootLayout() {
           if (error) throw error;
 
           console.log("[DeepLink handler] exchanged code ✅");
-          router.replace("/(app)/home");
+        router.replace("/(tabs)/trips");
           return;
         }
 
@@ -66,7 +66,7 @@ export default function RootLayout() {
 
     const routeForSession = (session: { user?: unknown } | null) => {
       if (session?.user) {
-        router.replace("/(app)/home");
+        router.replace("/(tabs)/trips");
       } else {
         router.replace("/(auth)/sign-in");
       }
@@ -117,7 +117,7 @@ export default function RootLayout() {
     <>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShadowVisible: false, headerTitleAlign: "center" }}>
-        <Stack.Screen name="(app)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
       </Stack>

@@ -1,4 +1,3 @@
-// lib/members.ts
 import { supabase } from "../supabaseClient";
 import { normalizeTripMemberRows } from "./trips";
 import type { TripRole, TripMemberRow } from "./trips";
@@ -7,14 +6,35 @@ export async function listTripMembers(tripId: string) {
   const { data, error } = await supabase
     .from("trip_members")
     .select(
-      "user_id, role, is_active, created_at, profiles:profiles!trip_members_user_id_fkey(id, full_name, display_name, avatar_url)"
+      "user_id, role, is_active, created_at, invited_email, invited_name"
     )
     .eq("trip_id", tripId)
     .eq("is_active", true)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
-  return normalizeTripMemberRows(data);
+  const members = normalizeTripMemberRows(data);
+  const userIds = Array.from(
+    new Set(members.map((member) => member.user_id).filter(Boolean))
+  );
+
+  if (userIds.length === 0) return members;
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, full_name, display_name, avatar_url")
+    .in("id", userIds);
+
+  if (profileError) throw profileError;
+
+  const profileById = new Map(
+    (profiles ?? []).map((profile) => [profile.id, profile])
+  );
+
+  return members.map((member) => ({
+    ...member,
+    profiles: profileById.get(member.user_id) ?? null,
+  }));
 }
 
 export async function updateTripMemberRole(params: {

@@ -3,7 +3,7 @@ import { View, ActivityIndicator, Text } from "react-native";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import { supabase } from "../supabaseClient";
-import { fetchMyProfile, upsertMyProfile } from "../lib/profile";
+import { ensureProfileIdentity, fetchMyProfile } from "../lib/profile";
 
 function parseFragment(url: string) {
   const hashIndex = url.indexOf("#");
@@ -61,8 +61,7 @@ export default function AuthCallbackScreen() {
           return;
         }
 
-        // ✅ Ensure profile row exists (idempotent)
-        await upsertMyProfile(userId, {});
+        await ensureProfileIdentity(userId, u.user?.email);
 
         const { data: profile, error: profileErr } = await fetchMyProfile(
           userId
@@ -73,7 +72,7 @@ export default function AuthCallbackScreen() {
         const missingName =
           !profile?.full_name?.trim() && !profile?.display_name?.trim();
 
-        router.replace(missingName ? "/(onboarding)/profile" : "/(app)/home");
+        router.replace(missingName ? "/(onboarding)/profile" : "/(tabs)/trips");
       } catch (e: any) {
         console.log("[auth-callback] failed:", e?.message ?? e);
         setStatus("Sign-in failed. Returning to sign-in…");
