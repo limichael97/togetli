@@ -281,9 +281,9 @@ export type Database = {
           home_airport: string | null
           id: string
           onboarding_completed: boolean
-          username: string
           timezone: string | null
           updated_at: string
+          username: string | null
         }
         Insert: {
           avatar_url?: string | null
@@ -293,9 +293,9 @@ export type Database = {
           home_airport?: string | null
           id: string
           onboarding_completed?: boolean
-          username?: string
           timezone?: string | null
           updated_at?: string
+          username?: string | null
         }
         Update: {
           avatar_url?: string | null
@@ -305,9 +305,9 @@ export type Database = {
           home_airport?: string | null
           id?: string
           onboarding_completed?: boolean
-          username?: string
           timezone?: string | null
           updated_at?: string
+          username?: string | null
         }
         Relationships: []
       }
@@ -544,32 +544,77 @@ export type Database = {
           },
         ]
       }
+      trip_note_reactions: {
+        Row: {
+          created_at: string
+          id: string
+          reaction_type: string
+          trip_note_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          reaction_type?: string
+          trip_note_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          reaction_type?: string
+          trip_note_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_note_reactions_trip_note_id_fkey"
+            columns: ["trip_note_id"]
+            isOneToOne: false
+            referencedRelation: "trip_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_note_reactions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_notes: {
         Row: {
+          category: string | null
           content: string | null
           created_at: string | null
           created_by: string | null
           id: string
+          is_pinned: boolean
           link: string | null
           title: string | null
           trip_id: string
           updated_at: string | null
         }
         Insert: {
+          category?: string | null
           content?: string | null
           created_at?: string | null
           created_by?: string | null
           id?: string
+          is_pinned?: boolean
           link?: string | null
           title?: string | null
           trip_id: string
           updated_at?: string | null
         }
         Update: {
+          category?: string | null
           content?: string | null
           created_at?: string | null
           created_by?: string | null
           id?: string
+          is_pinned?: boolean
           link?: string | null
           title?: string | null
           trip_id?: string
@@ -596,7 +641,7 @@ export type Database = {
           final_start_date: string | null
           hide_from_creator: boolean
           id: string
-          mode: string
+          mode: string | null
           notes: string | null
           planning_mode: string
           poll_sent_at: string | null
@@ -617,7 +662,7 @@ export type Database = {
           final_start_date?: string | null
           hide_from_creator?: boolean
           id?: string
-          mode?: string
+          mode?: string | null
           notes?: string | null
           planning_mode: string
           poll_sent_at?: string | null
@@ -638,7 +683,7 @@ export type Database = {
           final_start_date?: string | null
           hide_from_creator?: boolean
           id?: string
-          mode?: string
+          mode?: string | null
           notes?: string | null
           planning_mode?: string
           poll_sent_at?: string | null
@@ -681,6 +726,7 @@ export type Database = {
       }
       is_trip_admin_or_creator: { Args: { _trip_id: string }; Returns: boolean }
       is_trip_member: { Args: { _trip_id: string }; Returns: boolean }
+      normalize_username_seed: { Args: { seed: string }; Returns: string }
     }
     Enums: {
       budget_type: "flight" | "lodging"

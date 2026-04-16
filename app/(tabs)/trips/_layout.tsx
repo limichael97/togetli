@@ -22,7 +22,7 @@ export default function TripsStackLayout() {
         name="[tripId]/poll-results"
         options={{ title: "Poll Results" }}
       />
-      <Stack.Screen name="[tripId]/notes" options={{ title: "Notes" }} />
+      <Stack.Screen name="[tripId]/notes" options={{ title: "Shared Ideas" }} />
       <Stack.Screen name="[tripId]/travel" options={{ title: "Travel" }} />
     </Stack>
   );

@@ -447,10 +447,10 @@ export default function TripDetailScreen() {
       }
 
       return {
-        label: canManageTrip ? "Finish Trip Details" : "Open Notes Board",
+        label: canManageTrip ? "Finish Trip Details" : "Open Ideas Board",
         description: canManageTrip
           ? "Use setup to lock in the basic trip details without sending a poll."
-          : "Use the shared notes board while the trip details are being finalized.",
+          : "Use the shared ideas board while the trip details are being finalized.",
         onPress: () =>
           canManageTrip
             ? router.push(`/(tabs)/trips/${tripId}/setup`)
@@ -713,7 +713,7 @@ export default function TripDetailScreen() {
               pressed ? styles.cardButtonPressed : null,
             ]}
           >
-            <Text style={styles.cardButtonText}>Open Notes Board</Text>
+            <Text style={styles.cardButtonText}>Open Ideas Board</Text>
           </Pressable>
         </View>
       </View>
