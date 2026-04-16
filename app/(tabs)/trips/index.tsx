@@ -33,20 +33,29 @@ export default function TripsListScreen() {
 
   const [trips, setTrips] = useState<TripRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { refresh?: boolean }) => {
     if (!userId) return;
 
     try {
       setErrorMsg(null);
-      setLoading(true);
+      if (opts?.refresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       const rows = await listMyTrips(userId);
       setTrips(rows);
     } catch (e: any) {
       setErrorMsg(e?.message ?? "Failed to load trips");
     } finally {
-      setLoading(false);
+      if (opts?.refresh) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, [userId]);
 
@@ -117,8 +126,8 @@ export default function TripsListScreen() {
         </Pressable>
       )}
       ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-      refreshing={loading}
-      onRefresh={load}
+      refreshing={refreshing}
+      onRefresh={() => load({ refresh: true })}
       contentContainerStyle={[
         styles.contentContainer,
         trips.length === 0 ? { flexGrow: 1 } : null,

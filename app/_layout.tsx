@@ -1,9 +1,18 @@
-import { Stack, router } from "expo-router";
+import {
+  Stack,
+  router,
+  useRootNavigationState,
+  useSegments,
+} from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import * as Linking from "expo-linking";
 import { supabase } from "../supabaseClient";
 import { useAuthStore } from "../store/useAuthStore";
+import { fetchMyProfile } from "../lib/profile";
+
+type GateState = "loading" | "auth" | "onboarding" | "app";
 
 function parseFragmentTokens(url: string) {
   const hashIndex = url.indexOf("#");
@@ -20,107 +29,158 @@ function parseFragmentTokens(url: string) {
   return { access_token, refresh_token };
 }
 
-export default function RootLayout() {
+function LoadingOverlay() {
+  return (
+    <View style={styles.loadingOverlay}>
+      <StatusBar style="dark" />
+      <ActivityIndicator />
+    </View>
+  );
+}
+
+function AuthGate() {
   const initAuth = useAuthStore((s) => s.init);
+  const segments = useSegments();
+  const rootNavigationState = useRootNavigationState();
+  const [gateState, setGateState] = useState<GateState>("loading");
+
+  const currentRootSegment = segments[0];
+  const targetHref = useMemo(() => {
+    if (gateState === "auth") return "/(auth)/sign-in";
+    if (gateState === "onboarding") return "/(onboarding)/profile";
+    if (gateState === "app") return "/(tabs)/trips";
+    return null;
+  }, [gateState]);
+  const targetRootSegment = useMemo(() => {
+    if (gateState === "auth") return "(auth)";
+    if (gateState === "onboarding") return "(onboarding)";
+    if (gateState === "app") return "(tabs)";
+    return null;
+  }, [gateState]);
 
   useEffect(() => {
+    let active = true;
     let unsubAuth: null | (() => void) = null;
     let unsubSession: null | (() => void) = null;
     let subUrl: { remove: () => void } | null = null;
 
-    const handleMagicLinkUrl = async (url: string) => {
+    const resolveGateState = async (
+      session: { user?: { id: string } | null } | null,
+    ) => {
+      if (!active) return;
+
+      if (!session?.user?.id) {
+        setGateState("auth");
+        return;
+      }
+
+      setGateState("loading");
+
       try {
-        // Example: togetli://auth-callback#access_token=...&refresh_token=...
-        if (!url.includes("togetli://auth-callback")) return;
-
-        console.log("[DeepLink handler] got:", url);
-
-        const tokens = parseFragmentTokens(url);
-        if (tokens) {
-          const { error } = await supabase.auth.setSession({
-            access_token: tokens.access_token,
-            refresh_token: tokens.refresh_token,
-          });
-          if (error) throw error;
-
-          console.log("[DeepLink handler] session set ✅");
-          router.replace("/(tabs)/trips");
-          return;
+        const { data: profile, error } = await fetchMyProfile(session.user.id);
+        if (error && (error as { code?: string }).code !== "PGRST116") {
+          throw error;
         }
 
-        // If you ever switch to PKCE code flow, this handles it:
-        if (url.includes("code=")) {
-          const { error } = await supabase.auth.exchangeCodeForSession(url);
-          if (error) throw error;
-
-          console.log("[DeepLink handler] exchanged code ✅");
-        router.replace("/(tabs)/trips");
-          return;
-        }
-
-        console.log("[DeepLink handler] no usable tokens found");
-      } catch (e: any) {
-        console.log("[DeepLink handler] failed:", e?.message ?? e);
+        setGateState(
+          profile?.onboarding_completed === true ? "app" : "onboarding",
+        );
+      } catch (error) {
+        console.log("[AuthGate] profile gate failed", error);
+        setGateState("onboarding");
       }
     };
 
-    const routeForSession = (session: { user?: unknown } | null) => {
-      if (session?.user) {
-        router.replace("/(tabs)/trips");
-      } else {
-        router.replace("/(auth)/sign-in");
+    const handleAuthCallbackUrl = async (url: string) => {
+      try {
+        if (!url.includes("togetli://auth-callback")) return;
+
+        const tokens = parseFragmentTokens(url);
+        if (tokens) {
+          const { error } = await supabase.auth.setSession(tokens);
+          if (error) throw error;
+          return;
+        }
+
+        if (url.includes("code=")) {
+          const { error } = await supabase.auth.exchangeCodeForSession(url);
+          if (error) throw error;
+        }
+      } catch (error: any) {
+        console.log("[AuthGate] callback handling failed:", error?.message ?? error);
       }
     };
 
     (async () => {
-      // 1) init supabase auth listener/store
       try {
         unsubAuth = await initAuth();
-        console.log("[RootLayout] initAuth done");
-      } catch (e) {
-        console.log("[RootLayout] initAuth failed", e);
+      } catch (error) {
+        console.log("[AuthGate] initAuth failed", error);
       }
 
-      // 2) route based on current session
+      const initialUrl = await Linking.getInitialURL();
+      if (initialUrl) {
+        await handleAuthCallbackUrl(initialUrl);
+      }
+
       const { data, error } = await supabase.auth.getSession();
       if (error) {
-        console.log("[RootLayout] getSession failed", error);
+        console.log("[AuthGate] getSession failed", error);
       }
-      routeForSession(data.session);
+      await resolveGateState(data.session);
 
-      // 3) respond to auth state changes
       const { data: authSub } = supabase.auth.onAuthStateChange(
-        (_event, session) => {
-          routeForSession(session);
-        }
+        async (_event, session) => {
+          await resolveGateState(session);
+        },
       );
       unsubSession = () => authSub.subscription.unsubscribe();
 
-      // 4) handle cold start URL (sometimes null because router consumes it, but try anyway)
-      const initial = await Linking.getInitialURL();
-      if (initial) await handleMagicLinkUrl(initial);
-
-      // 5) handle URLs while app is running
       subUrl = Linking.addEventListener("url", ({ url }) => {
-        handleMagicLinkUrl(url);
+        void handleAuthCallbackUrl(url);
       });
     })();
 
     return () => {
+      active = false;
       unsubAuth?.();
       unsubSession?.();
       subUrl?.remove?.();
     };
   }, [initAuth]);
 
+  useEffect(() => {
+    if (!rootNavigationState?.key || !targetHref || !targetRootSegment) return;
+    if (currentRootSegment === targetRootSegment) return;
+    router.replace(targetHref);
+  }, [currentRootSegment, rootNavigationState?.key, targetHref, targetRootSegment]);
+
+  if (gateState === "loading") {
+    return <LoadingOverlay />;
+  }
+
+  return null;
+}
+
+export default function RootLayout() {
   return (
     <>
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShadowVisible: false, headerTitleAlign: "center" }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-      </Stack>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+        }}
+      />
+      <AuthGate />
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+});

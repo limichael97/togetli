@@ -280,6 +280,8 @@ export type Database = {
           full_name: string | null
           home_airport: string | null
           id: string
+          onboarding_completed: boolean
+          username: string
           timezone: string | null
           updated_at: string
         }
@@ -290,6 +292,8 @@ export type Database = {
           full_name?: string | null
           home_airport?: string | null
           id: string
+          onboarding_completed?: boolean
+          username?: string
           timezone?: string | null
           updated_at?: string
         }
@@ -300,6 +304,8 @@ export type Database = {
           full_name?: string | null
           home_airport?: string | null
           id?: string
+          onboarding_completed?: boolean
+          username?: string
           timezone?: string | null
           updated_at?: string
         }

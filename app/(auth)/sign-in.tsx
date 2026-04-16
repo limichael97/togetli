@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet, TextInput, Pressable, Alert } from "react-native";
 import { supabase } from "../../supabaseClient";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Linking from "expo-linking";
 import { ensureProfileIdentity } from "../../lib/profile";
 
 
@@ -9,6 +10,7 @@ export default function SignInScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
 
   const router = useRouter();
@@ -79,6 +81,35 @@ export default function SignInScreen() {
     }
   };
 
+  const continueWithGoogle = async () => {
+    setGoogleLoading(true);
+    try {
+      const redirectTo = Linking.createURL("auth-callback");
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.url) {
+        throw new Error("Could not start Google sign in.");
+      }
+
+      await Linking.openURL(data.url);
+    } catch (e: any) {
+      Alert.alert("Could not continue with Google", e?.message ?? String(e));
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Welcome to Togetli</Text>
@@ -117,6 +148,16 @@ export default function SignInScreen() {
       </Pressable>
 
       <Pressable
+        style={[styles.googleButton, googleLoading && styles.buttonDisabled]}
+        onPress={continueWithGoogle}
+        disabled={loading || googleLoading}
+      >
+        <Text style={styles.googleButtonText}>
+          {googleLoading ? "Opening Google..." : "Continue with Google"}
+        </Text>
+      </Pressable>
+
+      <Pressable
         style={styles.linkButton}
         onPress={() => setMode(mode === "sign-in" ? "sign-up" : "sign-in")}
         disabled={loading}
@@ -147,6 +188,21 @@ const styles = StyleSheet.create({
   },
   button: { backgroundColor: "black", paddingVertical: 14, borderRadius: 999, marginTop: 8 },
   buttonText: { color: "white", textAlign: "center", fontWeight: "600", fontSize: 16 },
+  googleButton: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    backgroundColor: "white",
+    paddingVertical: 14,
+    borderRadius: 999,
+    marginTop: 12,
+  },
+  googleButtonText: {
+    color: "#111",
+    textAlign: "center",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  buttonDisabled: { opacity: 0.7 },
   linkButton: { paddingVertical: 12 },
   linkText: { color: "#111", textAlign: "center", fontWeight: "500" },
 });

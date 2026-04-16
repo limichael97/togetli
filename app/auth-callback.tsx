@@ -41,9 +41,8 @@ export default function AuthCallbackScreen() {
           });
           if (error) throw error;
         } else if (incomingUrl.includes("code=")) {
-          const { error } = await supabase.auth.exchangeCodeForSession(
-            incomingUrl
-          );
+          const { error } =
+            await supabase.auth.exchangeCodeForSession(incomingUrl);
           if (error) throw error;
         } else {
           throw new Error("No auth tokens found in callback URL.");
@@ -61,18 +60,35 @@ export default function AuthCallbackScreen() {
           return;
         }
 
-        await ensureProfileIdentity(userId, u.user?.email);
+        const metadata = u.user?.user_metadata ?? {};
+        const fullName =
+          typeof metadata.full_name === "string"
+            ? metadata.full_name
+            : typeof metadata.name === "string"
+              ? metadata.name
+              : null;
+        const displayName =
+          typeof metadata.given_name === "string"
+            ? metadata.given_name
+            : typeof metadata.display_name === "string"
+              ? metadata.display_name
+              : null;
 
-        const { data: profile, error: profileErr } = await fetchMyProfile(
-          userId
-        );
+        await ensureProfileIdentity(userId, u.user?.email, {
+          fullName,
+          displayName,
+        });
+
+        const { data: profile, error: profileErr } =
+          await fetchMyProfile(userId);
 
         if (profileErr) throw profileErr;
 
-        const missingName =
-          !profile?.full_name?.trim() && !profile?.display_name?.trim();
-
-        router.replace(missingName ? "/(onboarding)/profile" : "/(tabs)/trips");
+        router.replace(
+          profile?.onboarding_completed === true
+            ? "/(tabs)/trips"
+            : "/(onboarding)/profile",
+        );
       } catch (e: any) {
         console.log("[auth-callback] failed:", e?.message ?? e);
         setStatus("Sign-in failed. Returning to sign-in…");

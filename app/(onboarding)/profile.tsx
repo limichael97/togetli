@@ -26,17 +26,20 @@ export default function OnboardingProfileScreen() {
     () => Localization.getCalendars()?.[0]?.timeZone ?? null,
     []
   );
-  const [fullName, setFullName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [homeAirport, setHomeAirport] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const save = async () => {
-    const name = fullName.trim();
+    const trimmedFirstName = firstName.trim();
+    const trimmedLastName = lastName.trim();
+    const fullName = `${trimmedFirstName} ${trimmedLastName}`.trim();
 
-    if (!name) {
+    if (!trimmedFirstName) {
       Alert.alert(
-        "Name required",
-        "Enter your name so your group can recognize you."
+        "First name required",
+        "Enter your first name so your group can recognize you."
       );
       return;
     }
@@ -53,8 +56,9 @@ export default function OnboardingProfileScreen() {
       }
 
       const { error } = await upsertMyProfile(userId, {
-        full_name: name,
-        display_name: name.split(/\s+/)[0],
+        full_name: fullName,
+        display_name: trimmedFirstName,
+        onboarding_completed: true,
         timezone: guessedTz,
         home_airport: homeAirport,
       });
@@ -76,12 +80,24 @@ export default function OnboardingProfileScreen() {
         This helps your friends recognize you in the trip.
       </Text>
 
-      <Text style={styles.label}>Full name</Text>
+      <Text style={styles.label}>First name</Text>
       <TextInput
         style={styles.input}
-        placeholder="Michael Li"
-        value={fullName}
-        onChangeText={setFullName}
+        placeholder="Michael"
+        value={firstName}
+        onChangeText={setFirstName}
+        editable={!loading}
+        autoCapitalize="words"
+        autoFocus
+        returnKeyType="next"
+      />
+
+      <Text style={[styles.label, { marginTop: 12 }]}>Last name</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Li"
+        value={lastName}
+        onChangeText={setLastName}
         editable={!loading}
         autoCapitalize="words"
         returnKeyType="done"
@@ -126,9 +142,12 @@ export default function OnboardingProfileScreen() {
       </View>
 
       <Pressable
-        style={[styles.button, loading && { opacity: 0.7 }]}
+        style={[
+          styles.button,
+          (loading || !firstName.trim()) && { opacity: 0.7 },
+        ]}
         onPress={save}
-        disabled={loading}
+        disabled={loading || !firstName.trim()}
       >
         <Text style={styles.buttonText}>
           {loading ? "Saving..." : "Continue"}
@@ -186,4 +205,3 @@ const styles = StyleSheet.create({
 
   small: { marginTop: 14, color: "#777", fontSize: 12, lineHeight: 16 },
 });
-console.log(airports.map(a => a.code));

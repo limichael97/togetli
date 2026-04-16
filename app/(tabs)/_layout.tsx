@@ -1,28 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Tabs, router } from "expo-router";
-import { useEffect } from "react";
-import { useAuthStore } from "../../store/useAuthStore";
-import { useProfile } from "../../lib/useProfile";
+import { Tabs } from "expo-router";
 
 export default function TabsLayout() {
-  const { session, loading: authLoading } = useAuthStore();
-  const { profile, loading: profileLoading } = useProfile();
-
-  useEffect(() => {
-    if (authLoading || profileLoading) return;
-
-    if (!session) {
-      router.replace("/(auth)/sign-in");
-      return;
-    }
-
-    const missingName =
-      !profile?.full_name?.trim() && !profile?.display_name?.trim();
-    if (missingName) {
-      router.replace("/(onboarding)/profile");
-    }
-  }, [session, authLoading, profile, profileLoading]);
-
   return (
     <Tabs
       initialRouteName="trips"
