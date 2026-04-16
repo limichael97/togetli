@@ -13,11 +13,18 @@ export type ProfileRow = {
 };
 
 export async function fetchMyProfile(userId: string) {
-  return supabase
+  console.log("[profile] fetchMyProfile start", { userId });
+  const result = await supabase
     .from("profiles")
     .select("id, full_name, display_name, username, onboarding_completed, timezone, home_airport")
     .eq("id", userId)
     .maybeSingle();
+  console.log("[profile] fetchMyProfile result", {
+    userId,
+    data: result.data ?? null,
+    error: result.error ?? null,
+  });
+  return result;
 }
 
 export async function upsertMyProfile(userId: string, patch: Partial<ProfileRow>) {

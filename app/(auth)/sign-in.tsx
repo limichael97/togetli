@@ -2,9 +2,33 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet, TextInput, Pressable, Alert } from "react-native";
 import { supabase } from "../../supabaseClient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Linking from "expo-linking";
+import { makeRedirectUri } from "expo-auth-session";
+import * as WebBrowser from "expo-web-browser";
 import { ensureProfileIdentity } from "../../lib/profile";
 
+WebBrowser.maybeCompleteAuthSession();
+
+function getOAuthRedirectUrl() {
+  return makeRedirectUri({
+    path: "auth-callback",
+    native: "togetli://auth-callback",
+  });
+}
+
+function parseFragmentTokens(url: string) {
+  const hashIndex = url.indexOf("#");
+  if (hashIndex === -1) return null;
+
+  const fragment = url.slice(hashIndex + 1);
+  const params = new URLSearchParams(fragment);
+
+  const access_token = params.get("access_token");
+  const refresh_token = params.get("refresh_token");
+
+  if (!access_token || !refresh_token) return null;
+
+  return { access_token, refresh_token };
+}
 
 export default function SignInScreen() {
   const [email, setEmail] = useState("");
@@ -84,7 +108,9 @@ export default function SignInScreen() {
   const continueWithGoogle = async () => {
     setGoogleLoading(true);
     try {
-      const redirectTo = Linking.createURL("auth-callback");
+      const redirectTo = getOAuthRedirectUrl();
+      console.log("[google-oauth] redirectTo:", redirectTo);
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -102,7 +128,41 @@ export default function SignInScreen() {
         throw new Error("Could not start Google sign in.");
       }
 
-      await Linking.openURL(data.url);
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      console.log("[google-oauth] result.type:", result.type);
+      console.log("[google-oauth] result.url:", "url" in result ? result.url ?? null : null);
+
+      if (result.type === "cancel" || result.type === "dismiss") {
+        return;
+      }
+
+      if (result.type === "success" && result.url) {
+        const tokens = parseFragmentTokens(result.url);
+
+        if (tokens) {
+          console.log("[google-oauth] finalizing session with fragment tokens");
+          console.log("[google-oauth] setSession start");
+          const { error: sessionError } = await supabase.auth.setSession(tokens);
+          console.log("[google-oauth] setSession done");
+          console.log("[google-oauth] setSession error:", sessionError ?? null);
+          if (sessionError) throw sessionError;
+          return;
+        }
+
+        if (result.url.includes("code=")) {
+          console.log("[google-oauth] finalizing session with code exchange");
+          const { error: exchangeError } =
+            await supabase.auth.exchangeCodeForSession(result.url);
+          console.log(
+            "[google-oauth] exchangeCodeForSession error:",
+            exchangeError ?? null,
+          );
+          if (exchangeError) throw exchangeError;
+          return;
+        }
+      }
+
+      console.log("[google-oauth] no session tokens found in auth result");
     } catch (e: any) {
       Alert.alert("Could not continue with Google", e?.message ?? String(e));
     } finally {

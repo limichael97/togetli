@@ -7,6 +7,8 @@ export default function TabsLayout() {
       initialRouteName="trips"
       screenOptions={{
         headerShown: false,
+        headerTitleAlign: "center",
+        headerShadowVisible: false,
         tabBarActiveTintColor: "#111",
         tabBarInactiveTintColor: "#8a8a8a",
         tabBarStyle: {
@@ -28,6 +30,7 @@ export default function TabsLayout() {
         name="inbox"
         options={{
           title: "Inbox",
+          headerShown: true,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="mail-outline" size={size} color={color} />
           ),
@@ -37,6 +40,7 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: "Profile",
+          headerShown: true,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),

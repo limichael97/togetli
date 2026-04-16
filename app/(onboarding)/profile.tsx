@@ -9,8 +9,9 @@ import {
 } from "react-native";
 import * as Localization from "expo-localization";
 import { router } from "expo-router";
+import { Screen } from "../../components/ui/Screen";
 import { supabase } from "../../supabaseClient";
-import { upsertMyProfile } from "../../lib/profile";
+import { fetchMyProfile, upsertMyProfile } from "../../lib/profile";
 
 const airports = [
   { code: "SFO", label: "SFO — San Francisco" },
@@ -46,6 +47,7 @@ export default function OnboardingProfileScreen() {
 
     setLoading(true);
     try {
+      console.log("[onboarding-profile] submit start");
       const { data: u, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
 
@@ -55,18 +57,54 @@ export default function OnboardingProfileScreen() {
         return;
       }
 
-      const { error } = await upsertMyProfile(userId, {
+      const payload = {
         full_name: fullName,
         display_name: trimmedFirstName,
         onboarding_completed: true,
         timezone: guessedTz,
         home_airport: homeAirport,
+      } as const;
+      console.log("[onboarding-profile] saving payload", {
+        userId,
+        ...payload,
       });
 
+      const { data: savedProfile, error } = await upsertMyProfile(userId, payload);
+      console.log("[onboarding-profile] upsert result", {
+        savedProfile,
+        error: error ?? null,
+      });
       if (error) throw error;
 
+      const { data: confirmedProfile, error: confirmError } =
+        await fetchMyProfile(userId);
+      console.log("[onboarding-profile] confirmed profile", {
+        confirmedProfile,
+        confirmError: confirmError ?? null,
+      });
+
+      if (confirmError && (confirmError as { code?: string }).code !== "PGRST116") {
+        throw confirmError;
+      }
+
+      if (confirmedProfile?.onboarding_completed !== true) {
+        Alert.alert(
+          "Could not finish setup",
+          "Your profile did not save correctly. Please try again."
+        );
+        return;
+      }
+
+      console.log("[onboarding-profile] routing to tabs");
       router.replace("/(tabs)/trips");
     } catch (e: any) {
+      console.log("[onboarding-profile] submit failed", {
+        message: e?.message ?? String(e),
+        code: e?.code ?? null,
+        details: e?.details ?? null,
+        hint: e?.hint ?? null,
+        raw: e,
+      });
       Alert.alert("Could not save profile", e?.message ?? String(e));
     } finally {
       setLoading(false);
@@ -74,13 +112,11 @@ export default function OnboardingProfileScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Finish setup</Text>
-      <Text style={styles.subtitle}>
-        This helps your friends recognize you in the trip.
-      </Text>
-
-      <Text style={styles.label}>First name</Text>
+    <Screen
+      title="Finish Setup"
+      subtitle="This helps your friends recognize you in the trip."
+    >
+      <Text style={styles.label}>First Name</Text>
       <TextInput
         style={styles.input}
         placeholder="Michael"
@@ -92,7 +128,7 @@ export default function OnboardingProfileScreen() {
         returnKeyType="next"
       />
 
-      <Text style={[styles.label, { marginTop: 12 }]}>Last name</Text>
+      <Text style={[styles.label, styles.labelSpacing]}>Last Name</Text>
       <TextInput
         style={styles.input}
         placeholder="Li"
@@ -103,8 +139,8 @@ export default function OnboardingProfileScreen() {
         returnKeyType="done"
       />
 
-      <Text style={[styles.label, { marginTop: 12 }]}>
-        Home airport (optional)
+      <Text style={[styles.label, styles.labelSpacing]}>
+        Home Airport (Optional)
       </Text>
       <View style={styles.pills}>
         <Pressable
@@ -158,16 +194,13 @@ export default function OnboardingProfileScreen() {
         We’ll use your timezone + home airport later for smarter flight
         suggestions.
       </Text>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 24, paddingTop: 80 },
-  title: { fontSize: 26, fontWeight: "700", marginBottom: 8 },
-  subtitle: { fontSize: 15, color: "#555", marginBottom: 28 },
-
   label: { fontSize: 14, fontWeight: "600", marginBottom: 6 },
+  labelSpacing: { marginTop: 12 },
   input: {
     borderWidth: 1,
     borderColor: "#ddd",

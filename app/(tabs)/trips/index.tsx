@@ -106,7 +106,7 @@ export default function TripsListScreen() {
         ) : errorMsg ? (
           <View style={styles.center}>
             <Text style={styles.error}>{errorMsg}</Text>
-            <Pressable onPress={load} style={styles.retryBtn}>
+            <Pressable onPress={() => load()} style={styles.retryBtn}>
               <Text style={styles.retryText}>Retry</Text>
             </Pressable>
           </View>

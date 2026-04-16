@@ -13,6 +13,13 @@ import { useAuthStore } from "../store/useAuthStore";
 import { fetchMyProfile } from "../lib/profile";
 
 type GateState = "loading" | "auth" | "onboarding" | "app";
+const PROFILE_FETCH_TIMEOUT_MS = 8000;
+
+function isAuthCallbackUrl(url: string) {
+  const parsed = Linking.parse(url);
+  const path = (parsed.path ?? "").replace(/^--\//, "");
+  return path === "auth-callback" || path.endsWith("/auth-callback");
+}
 
 function parseFragmentTokens(url: string) {
   const hashIndex = url.indexOf("#");
@@ -40,9 +47,15 @@ function LoadingOverlay() {
 
 function AuthGate() {
   const initAuth = useAuthStore((s) => s.init);
+  const session = useAuthStore((s) => s.session);
   const segments = useSegments();
   const rootNavigationState = useRootNavigationState();
   const [gateState, setGateState] = useState<GateState>("loading");
+
+  const setGateStateWithLog = (nextState: GateState, reason: string) => {
+    console.log("[AuthGate] gateState ->", nextState, "| reason:", reason);
+    setGateState(nextState);
+  };
 
   const currentRootSegment = segments[0];
   const targetHref = useMemo(() => {
@@ -68,42 +81,82 @@ function AuthGate() {
       session: { user?: { id: string } | null } | null,
     ) => {
       if (!active) return;
+      console.log("[AuthGate] resolveGateState start", {
+        hasSession: !!session,
+        userId: session?.user?.id ?? null,
+      });
 
       if (!session?.user?.id) {
-        setGateState("auth");
+        setGateStateWithLog("auth", "no session user id");
         return;
       }
 
-      setGateState("loading");
+      setGateStateWithLog("loading", `resolving profile for ${session.user.id}`);
 
       try {
-        const { data: profile, error } = await fetchMyProfile(session.user.id);
+        console.log("[AuthGate] fetchMyProfile start", {
+          userId: session.user.id,
+          timeoutMs: PROFILE_FETCH_TIMEOUT_MS,
+        });
+
+        const profileResult = await Promise.race([
+          fetchMyProfile(session.user.id),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(new Error("fetchMyProfile timed out"));
+            }, PROFILE_FETCH_TIMEOUT_MS);
+          }),
+        ]);
+
+        const { data: profile, error } = profileResult;
+        console.log("[AuthGate] fetchMyProfile resolved", {
+          userId: session.user.id,
+          hasProfile: !!profile,
+          onboardingCompleted: profile?.onboarding_completed ?? null,
+          errorCode: (error as { code?: string } | null)?.code ?? null,
+          errorMessage: (error as { message?: string } | null)?.message ?? null,
+        });
+
         if (error && (error as { code?: string }).code !== "PGRST116") {
           throw error;
         }
 
-        setGateState(
+        setGateStateWithLog(
           profile?.onboarding_completed === true ? "app" : "onboarding",
+          `profile resolved for ${session.user.id}`,
         );
+        console.log("[AuthGate] resolveGateState done", {
+          userId: session.user.id,
+          target:
+            profile?.onboarding_completed === true ? "app" : "onboarding",
+        });
       } catch (error) {
         console.log("[AuthGate] profile gate failed", error);
-        setGateState("onboarding");
+        setGateStateWithLog("onboarding", "profile fetch failed");
       }
     };
 
     const handleAuthCallbackUrl = async (url: string) => {
       try {
-        if (!url.includes("togetli://auth-callback")) return;
+        if (!isAuthCallbackUrl(url)) return;
 
         const tokens = parseFragmentTokens(url);
         if (tokens) {
+          console.log("[AuthGate] callback setSession start");
           const { error } = await supabase.auth.setSession(tokens);
+          console.log("[AuthGate] callback setSession done", {
+            error: error ?? null,
+          });
           if (error) throw error;
           return;
         }
 
         if (url.includes("code=")) {
+          console.log("[AuthGate] callback exchangeCodeForSession start");
           const { error } = await supabase.auth.exchangeCodeForSession(url);
+          console.log("[AuthGate] callback exchangeCodeForSession done", {
+            error: error ?? null,
+          });
           if (error) throw error;
         }
       } catch (error: any) {
@@ -114,11 +167,13 @@ function AuthGate() {
     (async () => {
       try {
         unsubAuth = await initAuth();
+        console.log("[AuthGate] initAuth complete");
       } catch (error) {
         console.log("[AuthGate] initAuth failed", error);
       }
 
       const initialUrl = await Linking.getInitialURL();
+      console.log("[AuthGate] initialUrl", initialUrl ?? null);
       if (initialUrl) {
         await handleAuthCallbackUrl(initialUrl);
       }
@@ -127,10 +182,18 @@ function AuthGate() {
       if (error) {
         console.log("[AuthGate] getSession failed", error);
       }
+      console.log("[AuthGate] getSession resolved", {
+        hasSession: !!data.session,
+        userId: data.session?.user?.id ?? null,
+      });
       await resolveGateState(data.session);
 
       const { data: authSub } = supabase.auth.onAuthStateChange(
-        async (_event, session) => {
+        async (event, session) => {
+          console.log("[AuthGate] onAuthStateChange", {
+            event,
+            userId: session?.user?.id ?? null,
+          });
           await resolveGateState(session);
         },
       );
@@ -150,10 +213,73 @@ function AuthGate() {
   }, [initAuth]);
 
   useEffect(() => {
-    if (!rootNavigationState?.key || !targetHref || !targetRootSegment) return;
-    if (currentRootSegment === targetRootSegment) return;
-    router.replace(targetHref);
-  }, [currentRootSegment, rootNavigationState?.key, targetHref, targetRootSegment]);
+    let cancelled = false;
+
+    const enforceGate = async () => {
+      if (!rootNavigationState?.key || !targetHref || !targetRootSegment) return;
+      if (currentRootSegment === targetRootSegment) return;
+
+      console.log("[AuthGate] route mismatch detected", {
+        currentRootSegment: currentRootSegment ?? null,
+        targetRootSegment,
+        targetHref,
+        gateState,
+        sessionUserId: session?.user?.id ?? null,
+      });
+
+      if (
+        (gateState === "onboarding" || gateState === "app") &&
+        session?.user?.id
+      ) {
+        const { data: freshProfile, error: freshProfileError } =
+          await fetchMyProfile(session.user.id);
+
+        if (cancelled) return;
+
+        console.log("[AuthGate] route mismatch revalidation", {
+          userId: session.user.id,
+          freshProfile,
+          freshProfileError: freshProfileError ?? null,
+        });
+
+        if (!freshProfileError) {
+          const nextGateState =
+            freshProfile?.onboarding_completed === true ? "app" : "onboarding";
+          setGateStateWithLog(nextGateState, "route mismatch revalidation");
+
+          if (
+            (nextGateState === "app" && currentRootSegment === "(tabs)") ||
+            (nextGateState === "onboarding" && currentRootSegment === "(onboarding)")
+          ) {
+            return;
+          }
+
+          router.replace(
+            nextGateState === "app"
+              ? "/(tabs)/trips"
+              : "/(onboarding)/profile",
+          );
+          return;
+        }
+      }
+
+      console.log("[AuthGate] enforcing route", { targetHref });
+      router.replace(targetHref);
+    };
+
+    void enforceGate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentRootSegment,
+    gateState,
+    rootNavigationState?.key,
+    session?.user?.id,
+    targetHref,
+    targetRootSegment,
+  ]);
 
   if (gateState === "loading") {
     return <LoadingOverlay />;
