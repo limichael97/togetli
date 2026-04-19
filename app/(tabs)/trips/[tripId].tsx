@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Share,
   Modal,
   Linking,
+  Dimensions,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -17,8 +18,13 @@ import {
   getTripOverview,
   getTripMemberDisplayName,
   TripOverview,
+  TRIP_TYPE_OPTIONS,
+  getTripTypeLabel,
   type TripRole,
   type TripType,
+  deleteTrip,
+  updateTripTitle,
+  updateTripType,
 } from "../../../lib/trips";
 import {
   buildTripInviteLink,
@@ -27,7 +33,13 @@ import {
   type PendingTripInvite,
 } from "../../../lib/invites";
 import { useAuthStore } from "../../../store/useAuthStore";
-import { checkIfUserResponded, listPollResponderUserIds } from "../../../lib/polls";
+import {
+  hasAvailabilityPollResponse,
+  hasStayPollResponse,
+  listPollResponseDetails,
+  parseStayPollDefinition,
+  type StayPollDefinition,
+} from "../../../lib/polls";
 import { leaveTrip } from "../../../lib/members";
 import {
   getTripStage,
@@ -35,12 +47,10 @@ import {
   isTripReady,
   type TripStage,
 } from "../../../lib/tripState";
-
-const TRIP_TYPE_LABELS: Record<TripType, string> = {
-  bachelor: "Bachelor Trip",
-  bachelorette: "Bachelorette Trip",
-  joint: "Group Trip",
-};
+import { supabase } from "../../../supabaseClient";
+import { AppInput } from "../../../components/ui/AppInput";
+import { AppButton } from "../../../components/ui/AppButton";
+import { getTripAwareCopy } from "../../../lib/tripCopy";
 
 const ROLE_LABELS: Record<TripRole, string> = {
   creator: "Creator",
@@ -49,91 +59,10 @@ const ROLE_LABELS: Record<TripRole, string> = {
 };
 
 const STAGE_LABELS: Record<TripStage, string> = {
-  draft: "Draft",
-  polling: "Polling",
+  draft: "Planning",
+  polling: "Live",
   finalized: "Finalized",
 };
-
-function ProgressStep({
-  label,
-  complete,
-}: {
-  label: string;
-  complete: boolean;
-}) {
-  return (
-    <View style={styles.progressRow}>
-      <View
-        style={[
-          styles.progressDot,
-          complete ? styles.progressDotComplete : null,
-        ]}
-      />
-      <Text
-        style={[
-          styles.progressLabel,
-          complete ? styles.progressLabelComplete : null,
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-  actionLabel,
-  onPress,
-}: {
-  label: string;
-  value: string;
-  actionLabel?: string;
-  onPress?: () => void;
-}) {
-  return (
-    <View style={styles.summaryRow}>
-      <View style={styles.summaryTextBlock}>
-        <Text style={styles.summaryLabel}>{label}</Text>
-        <Text style={styles.summaryValue}>{value}</Text>
-      </View>
-      {actionLabel && onPress ? (
-        <Pressable
-          onPress={onPress}
-          style={({ pressed }) => [
-            styles.inlineAction,
-            pressed ? styles.inlineActionPressed : null,
-          ]}
-        >
-          <Text style={styles.inlineActionText}>{actionLabel}</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function GroupStatusList({
-  items,
-  emptyText,
-}: {
-  items: string[];
-  emptyText: string;
-}) {
-  if (items.length === 0) {
-    return <Text style={styles.groupStatusEmpty}>{emptyText}</Text>;
-  }
-
-  return (
-    <View style={styles.groupStatusList}>
-      {items.map((item, index) => (
-        <Text key={`${item}-${index}`} style={styles.groupStatusItem}>
-          {item}
-        </Text>
-      ))}
-    </View>
-  );
-}
 
 function getInitials(name: string) {
   const parts = name
@@ -159,10 +88,9 @@ export default function TripDetailScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [copyInviteLoading, setCopyInviteLoading] = useState(false);
-  const [hasResponded, setHasResponded] = useState(false);
-  const [checkingResponse, setCheckingResponse] = useState(false);
   const [pendingInvites, setPendingInvites] = useState<PendingTripInvite[]>([]);
   const [responderUserIds, setResponderUserIds] = useState<string[]>([]);
+  const [stayResponderUserIds, setStayResponderUserIds] = useState<string[]>([]);
   const [inviteLinks, setInviteLinks] = useState<
     Partial<Record<Exclude<TripRole, "creator">, string>>
   >({});
@@ -170,6 +98,19 @@ export default function TripDetailScreen() {
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [invitePreviewUrl, setInvitePreviewUrl] = useState<string | null>(null);
   const [invitePreviewLoading, setInvitePreviewLoading] = useState(false);
+  const [stayPollDefinition, setStayPollDefinition] =
+    useState<StayPollDefinition | null>(null);
+  const [editTitleModalOpen, setEditTitleModalOpen] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>({
+    top: 72,
+    left: 16,
+  });
+  const [changeTypeModalOpen, setChangeTypeModalOpen] = useState(false);
+  const [savingTripType, setSavingTripType] = useState(false);
+  const menuButtonRef = useRef<View | null>(null);
 
   useEffect(() => {
     if (!tripId) return;
@@ -182,14 +123,41 @@ export default function TripDetailScreen() {
         setLoading(true);
         const res = await getTripOverview(tripId);
         const inviteRows = await listPendingTripInvites(tripId);
-        const responderIds =
-          getTripStage(res) === "polling"
-            ? await listPollResponderUserIds(tripId)
-            : [];
+        const responseDetails = await listPollResponseDetails(tripId);
+        const stayPollRow = await supabase
+          .from("trips")
+          .select("custom_poll_questions")
+          .eq("id", tripId)
+          .single();
+
         if (!mounted) return;
+        if (stayPollRow.error) throw stayPollRow.error;
+
         setData(res);
         setPendingInvites(inviteRows);
-        setResponderUserIds(responderIds);
+        setResponderUserIds(
+          Array.from(
+            new Set(
+              responseDetails
+                .filter(hasAvailabilityPollResponse)
+                .map((row) => row.user_id)
+                .filter(Boolean)
+            )
+          ) as string[]
+        );
+        setStayResponderUserIds(
+          Array.from(
+            new Set(
+              responseDetails
+                .filter(hasStayPollResponse)
+                .map((row) => row.user_id)
+                .filter(Boolean)
+            )
+          ) as string[]
+        );
+        setStayPollDefinition(
+          parseStayPollDefinition(stayPollRow.data?.custom_poll_questions ?? null)
+        );
       } catch (e: any) {
         if (mounted) setErrorMsg(e?.message ?? "Failed to load trip");
       } finally {
@@ -201,36 +169,6 @@ export default function TripDetailScreen() {
       mounted = false;
     };
   }, [tripId]);
-
-  useEffect(() => {
-    if (!userId || !tripId) return;
-
-    const stage = data ? getTripStage(data) : null;
-    const myMember = data?.members.find((m) => m.user_id === userId);
-    const canManageTrip = myMember?.role === "creator" || myMember?.role === "planner";
-
-    if (stage !== "polling" || canManageTrip) {
-      setHasResponded(false);
-      return;
-    }
-
-    let active = true;
-    (async () => {
-      try {
-        setCheckingResponse(true);
-        const responded = await checkIfUserResponded(tripId, userId);
-        if (active) setHasResponded(responded);
-      } catch {
-        if (active) setHasResponded(false);
-      } finally {
-        if (active) setCheckingResponse(false);
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [data, tripId, userId]);
 
   useEffect(() => {
     if (!inviteModalOpen) return;
@@ -265,11 +203,14 @@ export default function TripDetailScreen() {
       if (prev.some((pendingInvite) => pendingInvite.id === invite.id)) {
         return prev;
       }
-      return [...prev, {
-        id: invite.id,
-        role: invite.role,
-        created_at: invite.created_at,
-      }];
+      return [
+        ...prev,
+        {
+          id: invite.id,
+          role: invite.role,
+          created_at: invite.created_at,
+        },
+      ];
     });
     return link;
   };
@@ -288,7 +229,6 @@ export default function TripDetailScreen() {
         url: link,
       });
     } catch (e: any) {
-      console.error(e);
       Alert.alert("Invite failed", e?.message ?? String(e));
     } finally {
       setInviteLoading(false);
@@ -301,7 +241,6 @@ export default function TripDetailScreen() {
       const link = await getInviteLink(inviteRole);
       await copyInviteLink(link);
     } catch (e: any) {
-      console.error(e);
       Alert.alert("Copy failed", e?.message ?? String(e));
     } finally {
       setCopyInviteLoading(false);
@@ -310,7 +249,7 @@ export default function TripDetailScreen() {
 
   const handleEmailInvite = async () => {
     try {
-      const link = invitePreviewUrl ?? await getInviteLink(inviteRole);
+      const link = invitePreviewUrl ?? (await getInviteLink(inviteRole));
       const subject = encodeURIComponent("Join my trip on Togetli");
       const body = encodeURIComponent(
         `Join my trip on Togetli as a ${inviteRole}:\n\n${link}`
@@ -347,6 +286,30 @@ export default function TripDetailScreen() {
     ]);
   };
 
+  const handleDeleteTrip = () => {
+    if (!tripId) return;
+
+    Alert.alert(
+      "Delete trip?",
+      "This will permanently delete the trip and its related planning data.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteTrip(tripId);
+              router.replace("/(tabs)/trips");
+            } catch (e: any) {
+              Alert.alert("Delete failed", e?.message ?? String(e));
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (!tripId) {
     return (
       <View style={styles.center}>
@@ -379,63 +342,53 @@ export default function TripDetailScreen() {
     );
   }
 
-  const { trip, members, dateOptions, budgetOptions } = data;
-
+  const { trip, members } = data;
   const myMember = members.find((m) => m.user_id === userId);
   const role = myMember?.role ?? "guest";
   const roleLabel = ROLE_LABELS[role];
-  const tripTypeLabel = TRIP_TYPE_LABELS[trip.type];
+  const tripTypeLabel = getTripTypeLabel(trip.type);
+  const tripCopy = getTripAwareCopy(trip.type);
   const canManageTrip = role === "creator" || role === "planner";
   const canInvite = canManageTrip;
-  const canViewResults = canManageTrip;
+  const showInviteSection = canInvite;
+  const stage = getTripStage(data);
   const isPollMode = isPollTrip(trip.mode);
   const isPlannedMode = !isPollMode;
-  const plannerCount = members.filter((m) => m.role === "planner").length;
-  const guestCount = members.filter((m) => m.role === "guest").length;
-  const stage = getTripStage(data);
-  const showInviteSection = canInvite;
-  const isPolling = stage === "polling";
   const isFinalized = stage === "finalized";
   const draftReady = stage === "draft" && isTripReady(data);
-  const hasFinalDates = !!trip.final_start_date && !!trip.final_end_date;
-
-  const pollSummary = `${dateOptions.length} date option${dateOptions.length === 1 ? "" : "s"} • ${budgetOptions.length} budget option${budgetOptions.length === 1 ? "" : "s"}`;
-  const finalPlanSummary =
-    isFinalized && hasFinalDates
-      ? `${trip.final_start_date} → ${trip.final_end_date}`
-      : "No final plan locked in yet.";
-
-  const statusSentence = (() => {
-    if (isPlannedMode) {
-      if (isFinalized) {
-        return "This trip is already planned. Use the board to coordinate logistics with the group.";
-      }
-      return canManageTrip
-        ? "This trip is already planned. Add the final details you want the group to coordinate around."
-        : "This trip is already planned. Coordination details will show up here as the group fills them in.";
-    }
-
-    if (stage === "draft") {
-      if (draftReady) {
-        return canManageTrip
-          ? "Everything is ready. Review the poll and send it to the group."
-          : "The poll is almost ready. A planner can send it once details look good.";
-      }
-      return canManageTrip
-        ? "Finish the poll setup so you can send it and invite the group."
-        : "The trip is being set up before the poll goes live.";
-    }
-    if (stage === "polling") {
-      return canViewResults
-        ? "Awaiting responses. Review the signal as the group weighs in."
-        : hasResponded
-          ? "Your response is in. The group plan will take shape from here."
-          : "The poll is live. Add your availability and budget preferences.";
-    }
-    return "The plan is locked in. Review the itinerary and coordinate details with your group.";
-  })();
+  const plannerCount = members.filter((m) => m.role === "planner").length;
+  const guestCount = members.filter((m) => m.role === "guest").length;
+  const hasResponded = !!userId && responderUserIds.includes(userId);
+  const hasRespondedToStayPoll = !!userId && stayResponderUserIds.includes(userId);
+  const canVoteAvailabilityPoll = role !== "creator";
+  const stayPollExists = !!stayPollDefinition;
+  const finalizedStayOption = stayPollDefinition?.finalized_winner_note_id
+    ? stayPollDefinition.options.find(
+        (option) =>
+          option.source_note_id === stayPollDefinition.finalized_winner_note_id
+      ) ?? null
+    : null;
+  const stayPollIsFinalized = !!finalizedStayOption;
+  const availabilityPollIsLive = stage === "polling";
+  const stayPollIsLive = stayPollExists && !stayPollIsFinalized;
+  const availabilityNeedsUserVote =
+    availabilityPollIsLive && canVoteAvailabilityPoll && !hasResponded;
+  const stayNeedsUserVote = stayPollIsLive && !hasRespondedToStayPoll;
+  const hasInviteLinks = pendingInvites.length > 0;
+  const shouldFocusInvite =
+    canInvite && !isFinalized && (members.length < 2 || !hasInviteLinks);
 
   const primaryAction = (() => {
+    if (shouldFocusInvite) {
+      return {
+        label: tripCopy.inviteActionLabel,
+        description:
+          "Bring people into the trip first so setup and poll decisions reach the right group.",
+        onPress: () => setInviteModalOpen(true),
+        disabled: false,
+      };
+    }
+
     if (isPlannedMode) {
       if (isFinalized) {
         return {
@@ -447,9 +400,9 @@ export default function TripDetailScreen() {
       }
 
       return {
-        label: canManageTrip ? "Finish Trip Details" : "Open Ideas Board",
+        label: canManageTrip ? "Finish Trip Details" : "Open Ideas",
         description: canManageTrip
-          ? "Use setup to lock in the basic trip details without sending a poll."
+          ? "Lock in the trip basics so everyone has a clear plan to coordinate around."
           : "Use the shared ideas board while the trip details are being finalized.",
         onPress: () =>
           canManageTrip
@@ -459,59 +412,12 @@ export default function TripDetailScreen() {
       };
     }
 
-    if (role === "guest") {
-      if (isFinalized) {
-        return {
-          label: "Open Travel Board",
-          description: "Add your travel details and check the group plan.",
-          onPress: () => router.push(`/(tabs)/trips/${tripId}/travel`),
-          disabled: false,
-        };
-      }
-      if (isPolling && !hasResponded) {
-        return {
-          label: checkingResponse ? "Checking..." : "Fill Out Poll",
-          description:
-            "Share your availability and budget so the group can finalize the trip.",
-          onPress: () => router.push(`/(tabs)/trips/${tripId}/poll`),
-          disabled: checkingResponse,
-        };
-      }
-      if (isPolling && hasResponded) {
-        return {
-          label: "You're All Set",
-          description:
-            "You already responded. There’s nothing else you need to do right now.",
-          onPress: undefined,
-          disabled: true,
-        };
-      }
-      return {
-        label: "Awaiting Poll",
-        description:
-          "The trip is still being prepared before guests can respond.",
-        onPress: undefined,
-        disabled: true,
-      };
-    }
-
     if (stage === "draft") {
-      if (draftReady) {
-        return {
-          label: "Review Poll",
-          description:
-            "Your poll is ready. Send it, then invite the group right after.",
-          onPress:
-            canManageTrip
-              ? () => router.push(`/(tabs)/trips/${tripId}/setup`)
-              : undefined,
-          disabled: !canManageTrip,
-        };
-      }
       return {
-        label: "Continue Setup",
-        description:
-          "Add the dates and optional budget guidance for this trip.",
+        label: draftReady ? "Review Availability Poll" : "Set Up Availability Poll",
+        description: draftReady
+          ? "The availability poll is ready for review before it goes live."
+          : "Add the dates and budget guidance so the group can start voting.",
         onPress:
           canManageTrip
             ? () => router.push(`/(tabs)/trips/${tripId}/setup`)
@@ -520,42 +426,263 @@ export default function TripDetailScreen() {
       };
     }
 
-    if (stage === "polling") {
+    if (availabilityNeedsUserVote) {
+      return {
+        label: "Vote on Availability Poll",
+        description:
+          "Share your availability and budget before the group finalizes the trip.",
+        onPress: () =>
+          router.push(`/(tabs)/trips/${tripId}/poll?pollKind=availability`),
+        disabled: false,
+      };
+    }
+
+    if (stayNeedsUserVote) {
+      return {
+        label: "Vote on Stay Poll",
+        description: tripCopy.stayVoteDescription,
+        onPress: () => router.push(`/(tabs)/trips/${tripId}/poll?pollKind=stay`),
+        disabled: false,
+      };
+    }
+
+    if (canManageTrip && (availabilityPollIsLive || stayPollIsLive)) {
+      return {
+        label: stayPollIsLive
+          ? "Review Stay Poll Results"
+          : "Review Availability Poll Results",
+        description: stayPollIsLive
+          ? "Track the stay rankings and see where the group is landing."
+          : "Review incoming availability responses and see where consensus is forming.",
+        onPress: () =>
+          router.push(
+            stayPollIsLive
+              ? `/(tabs)/trips/${tripId}/poll-results?pollKind=stay`
+              : `/(tabs)/trips/${tripId}/poll-results?pollKind=availability`
+          ),
+        disabled: false,
+      };
+    }
+
+    if (isFinalized) {
+      return {
+        label: "Open Travel Board",
+        description: "Add your travel details and check the group plan.",
+        onPress: () => router.push(`/(tabs)/trips/${tripId}/travel`),
+        disabled: false,
+      };
+    }
+
+    if (role === "guest") {
       return {
         label: "Awaiting Responses",
         description:
-          "The poll is live. Check responses as they come in.",
-        onPress: canViewResults
-          ? () => router.push(`/(tabs)/trips/${tripId}/poll-results`)
-          : undefined,
-        disabled: !canViewResults,
+          "You’re up to date. Check back as the rest of the group responds.",
+        onPress: undefined,
+        disabled: true,
       };
     }
 
     return {
-      label: "Open Travel Board",
-      description: "Add your travel details and check the group plan.",
-      onPress: () => router.push(`/(tabs)/trips/${tripId}/travel`),
-      disabled: false,
+      label: "Awaiting Responses",
+      description:
+        "You’re up to date. Check back as the rest of the group responds.",
+      onPress: undefined,
+      disabled: true,
     };
   })();
 
-  const metaLabel = tripTypeLabel.replace(" Trip", "") + " Trip";
-  const peopleSummary = `${members.length} active members • ${plannerCount} planner${plannerCount === 1 ? "" : "s"} • ${guestCount} guest${guestCount === 1 ? "" : "s"}`;
-  const joinedMemberNames = members.map(getTripMemberDisplayName);
-  const memberPreviewNames = joinedMemberNames.slice(0, 3);
-  const extraMemberCount = Math.max(joinedMemberNames.length - memberPreviewNames.length, 0);
-  const hasActiveGuestInviteLink = pendingInvites.some((invite) => invite.role === "guest");
-  const hasActivePlannerInviteLink = pendingInvites.some((invite) => invite.role === "planner");
-  const respondedMemberNames = members
-    .filter((member) => responderUserIds.includes(member.user_id))
-    .map(getTripMemberDisplayName);
-  const waitingMemberNames = members
-    .filter(
-      (member) =>
-        member.role !== "creator" && !responderUserIds.includes(member.user_id)
-    )
-    .map(getTripMemberDisplayName);
+  const availabilityPollStatus =
+    stage === "draft" ? "Setup" : stage === "polling" ? "Live" : "Completed";
+  const availabilityPollDescription =
+    stage === "draft"
+      ? canManageTrip
+        ? "Finish setup and send the availability poll when details are ready."
+        : "A planner is still preparing the availability poll."
+      : stage === "polling"
+        ? `${responderUserIds.length} of ${members.length} members responded so far.`
+        : `${responderUserIds.length} of ${members.length} members submitted availability responses.`;
+  const availabilityPollAction = (() => {
+    if (stage === "draft") {
+      if (!canManageTrip) return null;
+      return {
+        label: draftReady ? "Review Poll" : "Continue Setup",
+        onPress: () => router.push(`/(tabs)/trips/${tripId}/setup`),
+      };
+    }
+
+    if (stage === "polling") {
+      if (availabilityNeedsUserVote) {
+        return {
+          label: "Vote Now",
+          onPress: () =>
+            router.push(`/(tabs)/trips/${tripId}/poll?pollKind=availability`),
+        };
+      }
+
+      if (hasResponded || canManageTrip) {
+        return {
+          label: "View Results",
+          onPress: () =>
+            router.push(`/(tabs)/trips/${tripId}/poll-results?pollKind=availability`),
+        };
+      }
+
+      return null;
+    }
+
+    return {
+      label: "View Results",
+      onPress: () =>
+        router.push(`/(tabs)/trips/${tripId}/poll-results?pollKind=availability`),
+    };
+  })();
+
+  const stayPollStatus = !stayPollExists
+    ? "Not created"
+    : stayPollIsFinalized
+      ? "Finalized"
+      : "Live";
+  const stayPollDescription = !stayPollExists
+    ? canManageTrip
+      ? tripCopy.stayPollLaunchDescription
+      : tripCopy.stayPollBrowseDescription
+    : stayPollIsFinalized
+      ? finalizedStayOption?.title ?? "A stay has been finalized."
+      : `${stayResponderUserIds.length} of ${members.length} members responded so far.`;
+  const stayPollAction = (() => {
+    if (!stayPollExists) {
+      return {
+        label: "Start with Ideas",
+        onPress: () => router.push(`/(tabs)/trips/${tripId}/notes`),
+      };
+    }
+
+    if (stayPollIsFinalized) {
+      return {
+        label: "View Results",
+        onPress: () =>
+          router.push(`/(tabs)/trips/${tripId}/poll-results?pollKind=stay`),
+      };
+    }
+
+    if (stayNeedsUserVote) {
+      return {
+        label: "Vote Now",
+        onPress: () => router.push(`/(tabs)/trips/${tripId}/poll?pollKind=stay`),
+      };
+    }
+
+    return {
+      label: "View Results",
+      onPress: () =>
+        router.push(`/(tabs)/trips/${tripId}/poll-results?pollKind=stay`),
+    };
+  })();
+
+  const metaLabel = tripTypeLabel;
+  const memberPreviewNames = members
+    .map(getTripMemberDisplayName)
+    .slice(0, 3);
+  const extraMemberCount = Math.max(members.length - memberPreviewNames.length, 0);
+  const memberCountText = `${members.length} active member${members.length === 1 ? "" : "s"}`;
+  const memberMixText = `${plannerCount} planner${plannerCount === 1 ? "" : "s"} • ${guestCount} guest${guestCount === 1 ? "" : "s"}`;
+  const openEditTitle = () => {
+    setTitleDraft(trip.title ?? "");
+    setEditTitleModalOpen(true);
+    setMenuOpen(false);
+  };
+
+  const handleOpenMenu = () => {
+    const fallbackPosition = {
+      top: 72,
+      left: Dimensions.get("window").width - 236,
+    };
+
+    if (!menuButtonRef.current?.measureInWindow) {
+      setMenuPosition(fallbackPosition);
+      setMenuOpen(true);
+      return;
+    }
+
+    menuButtonRef.current.measureInWindow((x, y, width, height) => {
+      const screenWidth = Dimensions.get("window").width;
+      const menuWidth = 220;
+      const horizontalMargin = 16;
+
+      setMenuPosition({
+        top: y + height + 8,
+        left: Math.min(
+          Math.max(horizontalMargin, x + width - menuWidth),
+          screenWidth - menuWidth - horizontalMargin
+        ),
+      });
+      setMenuOpen(true);
+    });
+  };
+
+  const handleSaveTripTitle = async () => {
+    const trimmedTitle = titleDraft.trim();
+    if (!trimmedTitle || !tripId) {
+      Alert.alert("Trip name required", "Enter a trip name before saving.");
+      return;
+    }
+
+    try {
+      setSavingTitle(true);
+      const updatedTrip = await updateTripTitle({
+        tripId,
+        title: trimmedTitle,
+      });
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              trip: {
+                ...current.trip,
+                title: updatedTrip.title,
+              },
+            }
+          : current
+      );
+      setEditTitleModalOpen(false);
+    } catch (e: any) {
+      Alert.alert("Couldn't update trip name", e?.message ?? String(e));
+    } finally {
+      setSavingTitle(false);
+    }
+  };
+
+  const handleChangeTripType = async (nextType: TripType) => {
+    if (!tripId || nextType === trip.type) {
+      setChangeTypeModalOpen(false);
+      return;
+    }
+
+    try {
+      setSavingTripType(true);
+      const updatedTrip = await updateTripType({
+        tripId,
+        type: nextType,
+      });
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              trip: {
+                ...current.trip,
+                type: updatedTrip.type,
+              },
+            }
+          : current
+      );
+      setChangeTypeModalOpen(false);
+    } catch (e: any) {
+      Alert.alert("Couldn't update trip type", e?.message ?? String(e));
+    } finally {
+      setSavingTripType(false);
+    }
+  };
 
   return (
     <ScrollView
@@ -563,8 +690,23 @@ export default function TripDetailScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.heroCard}>
-        <Text style={styles.title}>{trip.title ?? "Untitled Trip"}</Text>
-        <Text style={styles.meta}>{metaLabel}</Text>
+        <View style={styles.titleRow}>
+          <View style={styles.titleTextBlock}>
+            <Text style={styles.title}>{trip.title ?? "Untitled Trip"}</Text>
+            <Text style={styles.meta}>{metaLabel}</Text>
+          </View>
+          <Pressable
+            ref={menuButtonRef}
+            onPress={handleOpenMenu}
+            style={({ pressed }) => [
+              styles.menuButton,
+              pressed ? styles.inlineActionPressed : null,
+            ]}
+          >
+            <Text style={styles.menuButtonText}>⋯</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.badgeRow}>
           <View style={styles.roleBadge}>
             <Text style={styles.roleBadgeText}>{roleLabel}</Text>
@@ -573,61 +715,41 @@ export default function TripDetailScreen() {
             <Text style={styles.statusBadgeText}>{STAGE_LABELS[stage]}</Text>
           </View>
         </View>
-        <View style={styles.collabRow}>
+
+        <Pressable
+          onPress={() => router.push(`/(tabs)/trips/${tripId}/members`)}
+          style={({ pressed }) => [
+            styles.memberPreviewButton,
+            pressed ? styles.memberPreviewButtonPressed : null,
+          ]}
+        >
+          <View style={styles.memberPillRow}>
+            {memberPreviewNames.map((name) => (
+              <View key={name} style={styles.memberPill}>
+                <Text style={styles.memberPillText}>{getInitials(name)}</Text>
+              </View>
+            ))}
+            {extraMemberCount > 0 ? (
+              <View style={styles.memberOverflowPill}>
+                <Text style={styles.memberOverflowText}>+{extraMemberCount}</Text>
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.memberPreviewTextBlock}>
+            <Text style={styles.memberPreviewText}>{memberCountText}</Text>
+            <Text style={styles.memberPreviewSubtext}>{memberMixText}</Text>
+          </View>
+          <Text style={styles.memberChevron}>›</Text>
+        </Pressable>
+        {canInvite ? (
           <Pressable
-            onPress={() => router.push(`/(tabs)/trips/${tripId}/members`)}
+            onPress={() => setInviteModalOpen(true)}
             style={({ pressed }) => [
-              styles.memberPreviewButton,
-              pressed ? styles.memberPreviewButtonPressed : null,
+              styles.compactInviteButton,
+              pressed ? styles.inlineActionPressed : null,
             ]}
           >
-            <View style={styles.memberPillRow}>
-              {memberPreviewNames.map((name) => (
-                <View key={name} style={styles.memberPill}>
-                  <Text style={styles.memberPillText}>{getInitials(name)}</Text>
-                </View>
-              ))}
-              {extraMemberCount > 0 ? (
-                <View style={styles.memberOverflowPill}>
-                  <Text style={styles.memberOverflowText}>+{extraMemberCount}</Text>
-                </View>
-              ) : null}
-            </View>
-            <Text style={styles.memberPreviewText}>
-              {joinedMemberNames.length === 1
-                ? "1 member"
-                : `${joinedMemberNames.length} members`}
-            </Text>
-          </Pressable>
-          {canInvite ? (
-            <Pressable
-              onPress={() => setInviteModalOpen(true)}
-              style={({ pressed }) => [
-                styles.inviteTrigger,
-                pressed ? styles.inviteTriggerPressed : null,
-              ]}
-            >
-              <Text style={styles.inviteTriggerText}>+ Invite</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        <Text style={styles.statusSentence}>{statusSentence}</Text>
-        {isFinalized ? (
-          <Text style={styles.finalPlanText}>
-            {hasFinalDates
-              ? `${trip.final_start_date} → ${trip.final_end_date}`
-              : "Dates have not been added yet."}
-          </Text>
-        ) : null}
-        {role !== "creator" ? (
-          <Pressable
-            onPress={handleLeaveTrip}
-            style={({ pressed }) => [
-              styles.leaveBtn,
-              pressed ? styles.leaveBtnPressed : null,
-            ]}
-          >
-            <Text style={styles.leaveBtnText}>Leave trip</Text>
+            <Text style={styles.compactInviteButtonText}>+ Invite</Text>
           </Pressable>
         ) : null}
       </View>
@@ -648,111 +770,104 @@ export default function TripDetailScreen() {
                 : null,
             ]}
           >
-            <Text style={styles.primaryCtaButtonText}>
-              {primaryAction.label}
-            </Text>
+            <Text style={styles.primaryCtaButtonText}>{primaryAction.label}</Text>
           </Pressable>
         ) : (
-          <Text style={styles.primaryCardHint}>
-            No action needed right now.
-          </Text>
+          <Text style={styles.primaryCardHint}>No action needed right now.</Text>
         )}
       </View>
 
       <View style={styles.sectionBlock}>
-        <Text style={styles.sectionHeading}>Trip Snapshot</Text>
-        <View style={styles.card}>
-          <SummaryRow
-            label="People"
-            value={peopleSummary}
-            actionLabel="Manage"
-            onPress={() => router.push(`/(tabs)/trips/${tripId}/members`)}
-          />
-          {isPollMode ? (
-            <>
-              <View style={styles.divider} />
-              <SummaryRow
-                label="Poll"
-                value={pollSummary}
-                actionLabel={canManageTrip ? "Edit" : undefined}
-                onPress={
-                  canManageTrip
-                    ? () => router.push(`/(tabs)/trips/${tripId}/setup`)
-                    : undefined
-                }
-              />
-            </>
+        <Text style={styles.sectionHeading}>Polls</Text>
+
+        <View style={styles.pollCard}>
+          <View style={styles.pollCardHeader}>
+            <View style={styles.pollCardTextBlock}>
+              <Text style={styles.cardTitle}>Availability Poll</Text>
+              <Text style={styles.cardBody}>{availabilityPollDescription}</Text>
+            </View>
+            <View style={styles.pollStateBadge}>
+              <Text style={styles.pollStateBadgeText}>{availabilityPollStatus}</Text>
+            </View>
+          </View>
+          {availabilityPollAction ? (
+            <Pressable
+              onPress={availabilityPollAction.onPress}
+              style={({ pressed }) => [
+                styles.cardButton,
+                styles.fullWidthButton,
+                pressed ? styles.cardButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.cardButtonText}>{availabilityPollAction.label}</Text>
+            </Pressable>
           ) : (
-            <>
-              <View style={styles.divider} />
-              <SummaryRow
-                label="Plan"
-                value={finalPlanSummary}
-                actionLabel={canManageTrip ? "Edit" : undefined}
-                onPress={
-                  canManageTrip
-                    ? () => router.push(`/(tabs)/trips/${tripId}/setup`)
-                    : undefined
-                }
-              />
-            </>
+            <Text style={styles.cardHintText}>No action needed right now.</Text>
+          )}
+        </View>
+
+        <View style={styles.pollCard}>
+          <View style={styles.pollCardHeader}>
+            <View style={styles.pollCardTextBlock}>
+              <Text style={styles.cardTitle}>Stay Poll</Text>
+              <Text style={styles.cardBody}>{stayPollDescription}</Text>
+              {stayPollIsFinalized ? (
+                <Text style={styles.cardHintText}>
+                  The group has completed the stay poll and locked in its stay choice.
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.pollStateBadge}>
+              <Text style={styles.pollStateBadgeText}>{stayPollStatus}</Text>
+            </View>
+          </View>
+          {stayPollAction ? (
+            <View style={styles.cardActionStack}>
+              <Pressable
+                onPress={stayPollAction.onPress}
+                style={({ pressed }) => [
+                  styles.cardButton,
+                  styles.fullWidthButton,
+                  pressed ? styles.cardButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.cardButtonText}>{stayPollAction.label}</Text>
+              </Pressable>
+              {stayPollIsFinalized && finalizedStayOption?.link ? (
+                <Pressable
+                  onPress={() => Linking.openURL(finalizedStayOption.link!)}
+                  style={({ pressed }) => [
+                    styles.secondaryCardButton,
+                    styles.fullWidthButton,
+                    pressed ? styles.cardButtonPressed : null,
+                  ]}
+                >
+                  <Text style={styles.secondaryCardButtonText}>View Listing</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={styles.cardHintText}>No action needed right now.</Text>
           )}
         </View>
       </View>
 
       <View style={styles.sectionBlock}>
-        <Text style={styles.sectionHeading}>Shared Info</Text>
+        <Text style={styles.sectionHeading}>Shared Ideas</Text>
         <View style={styles.card}>
           <Text style={styles.cardBody}>
-            Keep trip links, reminders, and shared planning notes in one place.
+            {tripCopy.sharedIdeasDescription}
           </Text>
           <Pressable
             onPress={() => router.push(`/(tabs)/trips/${tripId}/notes`)}
             style={({ pressed }) => [
               styles.cardButton,
+              styles.fullWidthButton,
               pressed ? styles.cardButtonPressed : null,
             ]}
           >
-            <Text style={styles.cardButtonText}>Open Ideas Board</Text>
+            <Text style={styles.cardButtonText}>Open Ideas</Text>
           </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.sectionBlock}>
-        <Text style={styles.sectionHeading}>Group Status</Text>
-        <View style={styles.card}>
-          <Text style={styles.groupStatusLabel}>Joined members</Text>
-          <GroupStatusList
-            items={joinedMemberNames}
-            emptyText="No joined members yet."
-          />
-          {hasActiveGuestInviteLink || hasActivePlannerInviteLink ? (
-            <>
-              <View style={styles.divider} />
-              {hasActiveGuestInviteLink ? (
-                <Text style={styles.groupStatusNote}>Guest invite link active.</Text>
-              ) : null}
-              {hasActivePlannerInviteLink ? (
-                <Text style={styles.groupStatusNote}>Planner invite link active.</Text>
-              ) : null}
-            </>
-          ) : null}
-          {isPollMode && isPolling ? (
-            <>
-              <View style={styles.divider} />
-              <Text style={styles.groupStatusLabel}>Responded members</Text>
-              <GroupStatusList
-                items={respondedMemberNames}
-                emptyText="No responses yet."
-              />
-              <View style={styles.divider} />
-              <Text style={styles.groupStatusLabel}>Waiting on members</Text>
-              <GroupStatusList
-                items={waitingMemberNames}
-                emptyText="No one pending."
-              />
-            </>
-          ) : null}
         </View>
       </View>
 
@@ -767,7 +882,7 @@ export default function TripDetailScreen() {
           onPress={() => setInviteModalOpen(false)}
         >
           <Pressable style={styles.inviteSheet} onPress={() => {}}>
-            <Text style={styles.inviteSheetTitle}>Invite your group</Text>
+            <Text style={styles.inviteSheetTitle}>{tripCopy.inviteModalTitle}</Text>
             <View style={styles.inviteRoleRow}>
               <Pressable
                 onPress={() => setInviteRole("planner")}
@@ -779,7 +894,9 @@ export default function TripDetailScreen() {
                 <Text
                   style={[
                     styles.inviteRoleOptionText,
-                    inviteRole === "planner" ? styles.inviteRoleOptionTextActive : null,
+                    inviteRole === "planner"
+                      ? styles.inviteRoleOptionTextActive
+                      : null,
                   ]}
                 >
                   Planner
@@ -795,7 +912,9 @@ export default function TripDetailScreen() {
                 <Text
                   style={[
                     styles.inviteRoleOptionText,
-                    inviteRole === "guest" ? styles.inviteRoleOptionTextActive : null,
+                    inviteRole === "guest"
+                      ? styles.inviteRoleOptionTextActive
+                      : null,
                   ]}
                 >
                   Guest
@@ -820,7 +939,7 @@ export default function TripDetailScreen() {
                 disabled={copyInviteLoading || !invitePreviewUrl}
                 style={({ pressed }) => [
                   styles.inlineCopyButton,
-                  (copyInviteLoading || !invitePreviewUrl)
+                  copyInviteLoading || !invitePreviewUrl
                     ? styles.cardButtonDisabled
                     : null,
                   pressed && !copyInviteLoading && invitePreviewUrl
@@ -838,12 +957,13 @@ export default function TripDetailScreen() {
               disabled={inviteLoading}
               style={({ pressed }) => [
                 styles.cardButton,
+                styles.fullWidthButton,
                 inviteLoading ? styles.cardButtonDisabled : null,
                 pressed && !inviteLoading ? styles.cardButtonPressed : null,
               ]}
             >
               <Text style={styles.cardButtonText}>
-                {inviteLoading ? "Opening share..." : "Share link"}
+                {inviteLoading ? "Opening share..." : "Share Link"}
               </Text>
             </Pressable>
             <Pressable
@@ -851,15 +971,14 @@ export default function TripDetailScreen() {
               disabled={!invitePreviewUrl && invitePreviewLoading}
               style={({ pressed }) => [
                 styles.secondaryCardButton,
-                (!invitePreviewUrl && invitePreviewLoading)
+                styles.fullWidthButton,
+                !invitePreviewUrl && invitePreviewLoading
                   ? styles.cardButtonDisabled
                   : null,
                 pressed ? styles.cardButtonPressed : null,
               ]}
             >
-              <Text style={styles.secondaryCardButtonText}>
-                Email invite
-              </Text>
+              <Text style={styles.secondaryCardButtonText}>Email Invite</Text>
             </Pressable>
             <Pressable
               onPress={() => {
@@ -881,6 +1000,189 @@ export default function TripDetailScreen() {
               ]}
             >
               <Text style={styles.inviteCloseButtonText}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={menuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuOpen(false)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+          <Pressable
+            style={[
+              styles.menuSheet,
+              {
+                top: menuPosition.top,
+                left: menuPosition.left,
+              },
+            ]}
+            onPress={() => {}}
+          >
+            {canManageTrip ? (
+              <>
+                <Pressable
+                  onPress={openEditTitle}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    pressed ? styles.cardButtonPressed : null,
+                  ]}
+                >
+                  <Text style={styles.menuItemText}>Edit Trip Name</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    setChangeTypeModalOpen(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    pressed ? styles.cardButtonPressed : null,
+                  ]}
+                >
+                  <Text style={styles.menuItemText}>Change Trip Type</Text>
+                </Pressable>
+              </>
+            ) : null}
+            {role !== "creator" ? (
+              <Pressable
+                onPress={() => {
+                  setMenuOpen(false);
+                  handleLeaveTrip();
+                }}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  pressed ? styles.cardButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.menuItemText}>Leave Trip</Text>
+              </Pressable>
+            ) : null}
+            {canManageTrip ? (
+              <Pressable
+                onPress={() => {
+                  setMenuOpen(false);
+                  handleDeleteTrip();
+                }}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  pressed ? styles.cardButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.menuItemDestructive}>Delete Trip</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => setMenuOpen(false)}
+              style={({ pressed }) => [
+                styles.menuCloseButton,
+                pressed ? styles.cardButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.menuCloseButtonText}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={editTitleModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditTitleModalOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => (!savingTitle ? setEditTitleModalOpen(false) : undefined)}
+        >
+          <Pressable style={styles.editSheet} onPress={() => {}}>
+            <Text style={styles.inviteSheetTitle}>Edit Trip Name</Text>
+            <AppInput
+              label="Trip Name"
+              value={titleDraft}
+              onChangeText={setTitleDraft}
+              editable={!savingTitle}
+              autoFocus
+            />
+            <AppButton
+              label={savingTitle ? "Saving..." : "Save"}
+              onPress={handleSaveTripTitle}
+              disabled={savingTitle || !titleDraft.trim()}
+            />
+            <Pressable
+              onPress={() => setEditTitleModalOpen(false)}
+              disabled={savingTitle}
+              style={({ pressed }) => [
+                styles.inviteCloseButton,
+                pressed && !savingTitle ? styles.cardButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.inviteCloseButtonText}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={changeTypeModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setChangeTypeModalOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => (!savingTripType ? setChangeTypeModalOpen(false) : undefined)}
+        >
+          <Pressable style={styles.editSheet} onPress={() => {}}>
+            <Text style={styles.inviteSheetTitle}>Change Trip Type</Text>
+            <Text style={styles.modalHelperText}>
+              Choose the trip type that fits this trip best.
+            </Text>
+            <View style={styles.typeOptionsList}>
+              {TRIP_TYPE_OPTIONS.map((option) => {
+                const selected = trip.type === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    onPress={() => void handleChangeTripType(option.value)}
+                    disabled={savingTripType}
+                    style={({ pressed }) => [
+                      styles.typeOption,
+                      selected ? styles.typeOptionSelected : null,
+                      pressed && !savingTripType ? styles.cardButtonPressed : null,
+                    ]}
+                  >
+                    <View style={styles.typeOptionRow}>
+                      <Text
+                        style={[
+                          styles.typeOptionText,
+                          selected ? styles.typeOptionTextSelected : null,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {selected ? (
+                        <View style={styles.typeOptionBadge}>
+                          <Text style={styles.typeOptionBadgeText}>Selected</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              onPress={() => setChangeTypeModalOpen(false)}
+              disabled={savingTripType}
+              style={({ pressed }) => [
+                styles.modalSecondaryButton,
+                pressed && !savingTripType ? styles.cardButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.modalSecondaryButtonText}>Cancel</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -907,25 +1209,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ececec",
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  titleTextBlock: {
+    flex: 1,
+    gap: 6,
+  },
   title: {
     fontSize: 28,
     fontWeight: "700",
     letterSpacing: -0.3,
     color: "#111",
   },
-  meta: { marginTop: 6, color: "#666", fontSize: 15 },
+  meta: { color: "#666", fontSize: 15 },
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
     marginTop: 16,
-  },
-  collabRow: {
-    marginTop: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
   },
   roleBadge: {
     paddingHorizontal: 12,
@@ -942,11 +1247,16 @@ const styles = StyleSheet.create({
   },
   statusBadgeText: { color: "#333", fontWeight: "600", fontSize: 12 },
   memberPreviewButton: {
+    marginTop: 16,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    flex: 1,
+    gap: 12,
     minWidth: 0,
+    borderWidth: 1,
+    borderColor: "#ededed",
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: "#fff",
   },
   memberPreviewButtonPressed: { opacity: 0.75 },
   memberPillRow: {
@@ -981,43 +1291,54 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  memberPreviewTextBlock: {
+    flex: 1,
+    gap: 3,
+  },
   memberPreviewText: {
-    flexShrink: 1,
+    color: "#111",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  memberPreviewSubtext: {
     color: "#555",
-    fontSize: 14,
+    fontSize: 13,
+  },
+  memberChevron: {
+    color: "#9ca3af",
+    fontSize: 22,
     fontWeight: "600",
   },
-  inviteTrigger: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e5e5e5",
-  },
-  inviteTriggerPressed: { opacity: 0.8 },
-  inviteTriggerText: {
-    color: "#111",
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  statusSentence: {
-    marginTop: 14,
-    color: "#555",
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  leaveBtn: {
-    marginTop: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#e5e5e5",
+  compactInviteButton: {
     alignSelf: "flex-start",
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    backgroundColor: "#fff",
   },
-  leaveBtnText: { color: "#333", fontWeight: "600" },
-  leaveBtnPressed: { opacity: 0.7 },
+  compactInviteButtonText: {
+    color: "#111",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  menuButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuButtonText: {
+    color: "#111",
+    fontSize: 22,
+    fontWeight: "700",
+  },
 
   primaryCard: {
     padding: 20,
@@ -1070,7 +1391,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111",
   },
-
   card: {
     padding: 16,
     borderRadius: 18,
@@ -1079,60 +1399,52 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     gap: 12,
   },
+  pollCard: {
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#ececec",
+    backgroundColor: "#fff",
+    gap: 12,
+  },
+  pollCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  pollCardTextBlock: {
+    flex: 1,
+    gap: 6,
+  },
+  pollStateBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#f3f4f6",
+  },
+  pollStateBadgeText: {
+    color: "#374151",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111",
+  },
   cardBody: {
     color: "#555",
     fontSize: 14,
     lineHeight: 20,
   },
-  divider: {
-    height: 1,
-    backgroundColor: "#efefef",
-  },
-  summaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  summaryTextBlock: {
-    flex: 1,
-    gap: 4,
-  },
-  summaryLabel: {
+  cardHintText: {
+    color: "#666",
     fontSize: 13,
-    fontWeight: "700",
-    color: "#666",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    lineHeight: 18,
   },
-  summaryValue: {
-    fontSize: 15,
-    lineHeight: 20,
-    color: "#111",
-  },
-  groupStatusLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#666",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  groupStatusList: {
-    gap: 6,
-  },
-  groupStatusItem: {
-    fontSize: 15,
-    lineHeight: 20,
-    color: "#111",
-  },
-  groupStatusEmpty: {
-    fontSize: 14,
-    color: "#666",
-  },
-  groupStatusNote: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: "#555",
+  cardActionStack: {
+    gap: 10,
   },
   inlineAction: {
     paddingHorizontal: 12,
@@ -1140,6 +1452,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "#e5e5e5",
+    backgroundColor: "#fff",
   },
   inlineActionText: {
     color: "#111",
@@ -1147,6 +1460,90 @@ const styles = StyleSheet.create({
   },
   inlineActionPressed: { opacity: 0.7 },
 
+  cardButton: {
+    marginTop: 2,
+    backgroundColor: "#111",
+    paddingVertical: 12,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardButtonText: {
+    color: "#fff",
+    textAlign: "center",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  cardButtonPressed: { opacity: 0.8 },
+  cardButtonDisabled: { opacity: 0.5 },
+  secondaryCardButton: {
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryCardButtonText: {
+    color: "#111",
+    textAlign: "center",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  rowButton: {
+    flex: 1,
+  },
+  fullWidthButton: {
+    width: "100%",
+  },
+
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(17,17,17,0.1)",
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(17,17,17,0.28)",
+    padding: 16,
+  },
+  inviteSheet: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 20,
+    gap: 12,
+    width: "100%",
+    maxWidth: 420,
+  },
+  editSheet: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 20,
+    width: "100%",
+    maxWidth: 420,
+  },
+  menuSheet: {
+    position: "absolute",
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 12,
+    width: 220,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#ececec",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  inviteSheetTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111",
+  },
   inviteRoleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1165,53 +1562,6 @@ const styles = StyleSheet.create({
   inviteRoleOptionActive: { backgroundColor: "#111", borderColor: "#111" },
   inviteRoleOptionText: { color: "#333", fontWeight: "500" },
   inviteRoleOptionTextActive: { color: "#fff" },
-  cardButton: {
-    marginTop: 2,
-    backgroundColor: "#111",
-    paddingVertical: 12,
-    borderRadius: 999,
-  },
-  cardButtonText: {
-    color: "#fff",
-    textAlign: "center",
-    fontWeight: "600",
-    fontSize: 15,
-  },
-  cardButtonPressed: { opacity: 0.8 },
-  cardButtonDisabled: { opacity: 0.5 },
-  secondaryCardButton: {
-    paddingVertical: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#e5e5e5",
-    backgroundColor: "#fff",
-  },
-  secondaryCardButtonText: {
-    color: "#111",
-    textAlign: "center",
-    fontWeight: "600",
-    fontSize: 15,
-  },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(17,17,17,0.28)",
-    padding: 16,
-  },
-  inviteSheet: {
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    padding: 20,
-    gap: 12,
-    width: "100%",
-    maxWidth: 420,
-  },
-  inviteSheetTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#111",
-  },
   inviteLinkRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1252,6 +1602,43 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 14,
   },
+  modalHelperText: {
+    marginTop: 8,
+    marginBottom: 16,
+    color: "#666",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  menuItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  menuItemText: {
+    color: "#111",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  menuItemDestructive: {
+    color: "#b91c1c",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  menuCloseButton: {
+    marginTop: 4,
+    paddingVertical: 11,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  menuCloseButtonText: {
+    color: "#444",
+    fontSize: 14,
+    fontWeight: "600",
+  },
   inviteManageButton: {
     paddingVertical: 10,
     alignItems: "center",
@@ -1270,41 +1657,59 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
-
-  progressCard: {
-    padding: 16,
-    borderRadius: 18,
+  typeOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#ececec",
+    borderColor: "#ddd",
     backgroundColor: "#fff",
-    gap: 12,
   },
-  progressRow: {
+  typeOptionSelected: {
+    borderColor: "#111",
+    backgroundColor: "#f7f7f7",
+  },
+  typeOptionsList: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  typeOptionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
+    gap: 12,
   },
-  progressDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: "#d5d5d5",
-  },
-  progressDotComplete: {
-    backgroundColor: "#111",
-  },
-  progressLabel: {
-    color: "#666",
-    fontSize: 14,
-  },
-  progressLabelComplete: {
+  typeOptionText: {
     color: "#111",
+    fontSize: 15,
     fontWeight: "600",
   },
-  finalPlanText: {
-    marginTop: 12,
+  typeOptionTextSelected: {
     color: "#111",
-    fontSize: 16,
+  },
+  typeOptionBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "#111",
+  },
+  typeOptionBadgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  modalSecondaryButton: {
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalSecondaryButtonText: {
+    color: "#444",
+    fontSize: 15,
     fontWeight: "600",
   },
 });

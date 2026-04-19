@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
+import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuthStore } from "../../../../store/useAuthStore";
 import {
@@ -15,8 +16,10 @@ import {
   markPollSent,
   markTripPlanned,
   saveTripLength,
+  saveStayPollDefinition,
   upsertTripBudgetOptions,
   upsertTripDateOptions,
+  type StayPollOption as BaseStayPollOption,
 } from "../../../../lib/polls";
 import type {
   TripBudgetOptionInput,
@@ -26,8 +29,19 @@ import { Screen } from "../../../../components/ui/Screen";
 import { AppButton } from "../../../../components/ui/AppButton";
 import { AppInput } from "../../../../components/ui/AppInput";
 import { colors, radius, spacing, typography } from "../../../../lib/theme";
+import { getTripAwareCopy } from "../../../../lib/tripCopy";
+import type { TripType } from "../../../../lib/trips";
 
 const LENGTH_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
+type StayPollOption = BaseStayPollOption;
+type StayPollOptionEditorState = {
+  total_price: string;
+  beds: string;
+  bedrooms: string;
+  bathrooms: string;
+  location: string;
+  note: string;
+};
 
 const BASE_FLIGHT_OPTIONS: TripBudgetOptionInput[] = [
   { type: "flight", label: "Under $300" },
@@ -67,6 +81,111 @@ function sortDateOptions(options: TripDateOptionInput[]) {
   return [...options].sort((a, b) => a.start_date.localeCompare(b.start_date));
 }
 
+function normalizeLink(value: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function getLinkTypeLabel(link: string | null) {
+  const normalized = normalizeLink(link)?.toLowerCase() ?? "";
+  if (!normalized) return "Link";
+  if (normalized.includes("tiktok.com")) return "TikTok";
+  if (normalized.includes("instagram.com")) return "Instagram";
+  if (normalized.includes("airbnb.")) return "Airbnb";
+  return "Link";
+}
+
+function getStayOptionEditorState(
+  option?: Partial<StayPollOption> | null
+): StayPollOptionEditorState {
+  return {
+    total_price: option?.total_price ?? "",
+    beds: option?.beds ?? "",
+    bedrooms: option?.bedrooms ?? "",
+    bathrooms: option?.bathrooms ?? "",
+    location: option?.location ?? "",
+    note: option?.note ?? "",
+  };
+}
+
+function parseStayDraftOptions(raw: string | string[] | undefined) {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.flatMap((item): StayPollOption[] => {
+      if (!item || typeof item !== "object") return [];
+      const title =
+        typeof item.title === "string" && item.title.trim()
+          ? item.title.trim()
+          : "Untitled stay";
+      const source_note_id =
+        typeof item.source_note_id === "string" ? item.source_note_id : "";
+      const link = typeof item.link === "string" ? item.link : null;
+      const category = item.category === "stay" ? "stay" : null;
+
+      if (!source_note_id || !category) return [];
+      return [
+        {
+          source_note_id,
+          title,
+          link,
+          category,
+          total_price:
+            typeof item.total_price === "string" ? item.total_price : "",
+          beds: typeof item.beds === "string" ? item.beds : "",
+          bedrooms:
+            typeof item.bedrooms === "string" ? item.bedrooms : "",
+          bathrooms:
+            typeof item.bathrooms === "string" ? item.bathrooms : "",
+          location:
+            typeof item.location === "string" ? item.location : "",
+          note: typeof item.note === "string" ? item.note : "",
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function getStayOptionSummary(option: StayPollOption) {
+  const items: string[] = [];
+  if (option.total_price?.trim()) {
+    items.push(formatStayPriceSummary(option.total_price));
+  }
+  if (option.beds?.trim()) items.push(`${option.beds.trim()} beds`);
+  if (option.bedrooms?.trim()) items.push(`${option.bedrooms.trim()} bedrooms`);
+  if (option.bathrooms?.trim()) items.push(`${option.bathrooms.trim()} bathrooms`);
+  if (option.location?.trim()) items.push(option.location.trim());
+  if (option.note?.trim()) items.push(option.note.trim());
+  return items;
+}
+
+function formatStayPriceSummary(value: string) {
+  const trimmed = value.trim();
+  const normalized = trimmed.replace(/[$,\s]/g, "");
+
+  if (/^\d+(\.\d+)?$/.test(normalized)) {
+    const amount = Number(normalized);
+    if (Number.isFinite(amount)) {
+      const formatter = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+      });
+      return `${formatter.format(amount)} total`;
+    }
+  }
+
+  return trimmed;
+}
+
 function DateOptionItem({
   option,
   onRemove,
@@ -98,8 +217,12 @@ function DateOptionItem({
 export default function TripSetupScreen() {
   const params = useLocalSearchParams();
   const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
+  const pollType = Array.isArray(params.pollType) ? params.pollType[0] : params.pollType;
   const router = useRouter();
   const userId = useAuthStore((s) => s.userId);
+  const stayDraftParam = Array.isArray(params.stayDraft)
+    ? params.stayDraft[0]
+    : params.stayDraft;
 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -120,10 +243,31 @@ export default function TripSetupScreen() {
   const [lodgingOptions, setLodgingOptions] = useState<TripBudgetOptionInput[]>(BASE_LODGING_OPTIONS);
   const [canManageTrip, setCanManageTrip] = useState(false);
   const [tripMode, setTripMode] = useState<"poll" | "planned">("poll");
+  const [tripType, setTripType] = useState<TripType | null>(null);
+  const [stayPollOptions, setStayPollOptions] = useState<StayPollOption[]>([]);
+  const [editingStayOptionId, setEditingStayOptionId] = useState<string | null>(
+    null
+  );
+  const [stayOptionEditor, setStayOptionEditor] = useState<StayPollOptionEditorState>(
+    getStayOptionEditorState()
+  );
   const [existingFinalDates, setExistingFinalDates] = useState<{
     start: string | null;
     end: string | null;
   }>({ start: null, end: null });
+  const parsedStayOptions = useMemo(
+    () => parseStayDraftOptions(stayDraftParam ?? params.prefilledOptions),
+    [params.prefilledOptions, stayDraftParam]
+  );
+  const isStayPollBuilder = pollType === "stay";
+  const tripCopy = useMemo(() => getTripAwareCopy(tripType), [tripType]);
+
+  useEffect(() => {
+    if (!isStayPollBuilder) return;
+    setStayPollOptions(parsedStayOptions);
+    setEditingStayOptionId(null);
+    setStayOptionEditor(getStayOptionEditorState());
+  }, [isStayPollBuilder, parsedStayOptions]);
 
   useEffect(() => {
     if (!tripId) return;
@@ -139,6 +283,7 @@ export default function TripSetupScreen() {
         const member = res.members.find((m) => m.user_id === userId);
         setCanManageTrip(member?.role === "creator" || member?.role === "planner");
         setTripMode(res.trip.mode === "planned" ? "planned" : "poll");
+        setTripType(res.trip.type);
         setExistingFinalDates({
           start: res.trip.final_start_date,
           end: res.trip.final_end_date,
@@ -343,6 +488,144 @@ export default function TripSetupScreen() {
     }
   };
 
+  const handleRemoveStayOption = (sourceNoteId: string) => {
+    if (stayPollOptions.length <= 2) {
+        Alert.alert(
+          "Keep at least 2 stays",
+          "A stay poll needs at least 2 stay options."
+        );
+      return;
+    }
+
+    setStayPollOptions((currentOptions) =>
+      currentOptions.filter((option) => option.source_note_id !== sourceNoteId)
+    );
+
+    if (editingStayOptionId === sourceNoteId) {
+      setEditingStayOptionId(null);
+      setStayOptionEditor(getStayOptionEditorState());
+    }
+  };
+
+  const handleStartStayOptionEditing = (sourceNoteId: string) => {
+    if (editingStayOptionId && editingStayOptionId !== sourceNoteId) {
+      Alert.alert(
+        "Finish current details",
+        "Save or cancel the open stay details before editing another option."
+      );
+      return;
+    }
+
+    if (editingStayOptionId === sourceNoteId) return;
+
+    const option = stayPollOptions.find(
+      (currentOption) => currentOption.source_note_id === sourceNoteId
+    );
+    if (!option) return;
+
+    setEditingStayOptionId(sourceNoteId);
+    setStayOptionEditor(getStayOptionEditorState(option));
+  };
+
+  const updateStayOptionField = (
+    field: keyof StayPollOptionEditorState,
+    value: string
+  ) => {
+    setStayOptionEditor((currentEditor) => ({
+      ...currentEditor,
+      [field]: value,
+    }));
+  };
+
+  const handleCancelStayOptionEditing = () => {
+    setEditingStayOptionId(null);
+    setStayOptionEditor(getStayOptionEditorState());
+  };
+
+  const handleSaveStayOptionEditing = () => {
+    if (!editingStayOptionId) return;
+
+    setStayPollOptions((currentOptions) =>
+      currentOptions.map((option) =>
+        option.source_note_id === editingStayOptionId
+          ? { ...option, ...stayOptionEditor }
+          : option
+      )
+    );
+    setEditingStayOptionId(null);
+    setStayOptionEditor(getStayOptionEditorState());
+  };
+
+  const handleBackToStayIdeas = () => {
+    if (!tripId) return;
+    if (editingStayOptionId) {
+      Alert.alert(
+        "Finish editing details",
+        "Save or cancel the open stay details before going back to ideas."
+      );
+      return;
+    }
+
+    router.replace({
+      pathname: "/(tabs)/trips/[tripId]/notes",
+      params: {
+        tripId,
+        stayDraft: JSON.stringify(stayPollOptions),
+      },
+    });
+  };
+
+  const handleCreateStayPoll = () => {
+    if (stayPollOptions.length < 2) return;
+    if (editingStayOptionId) {
+      Alert.alert(
+        "Finish editing details",
+        "Save or cancel the open stay details before creating the stay poll."
+      );
+      return;
+    }
+
+    const persist = async () => {
+      try {
+        setSaving(true);
+        await saveStayPollDefinition(
+          tripId,
+          stayPollOptions.map((option) => ({
+            source_note_id: option.source_note_id,
+            title: option.title,
+            link: option.link,
+            category: option.category,
+            total_price: option.total_price ?? null,
+            beds: option.beds ?? null,
+            bedrooms: option.bedrooms ?? null,
+            bathrooms: option.bathrooms ?? null,
+            location: option.location ?? null,
+            note: option.note ?? null,
+          }))
+        );
+        await markPollSent(tripId);
+        router.replace(`/(tabs)/trips/${tripId}`);
+      } catch (e: any) {
+        Alert.alert("Could not create stay poll", e?.message ?? String(e));
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    void persist();
+  };
+
+  const handleOpenStayLink = async (value: string | null) => {
+    const normalized = normalizeLink(value);
+    if (!normalized) return;
+
+    try {
+      await Linking.openURL(normalized);
+    } catch (e: any) {
+      Alert.alert("Couldn't open link", e?.message ?? String(e));
+    }
+  };
+
   if (!tripId) {
     return (
       <View style={styles.center}>
@@ -372,6 +655,249 @@ export default function TripSetupScreen() {
       <View style={styles.center}>
         <Text style={styles.error}>Only planners and creators can edit trip setup.</Text>
       </View>
+    );
+  }
+
+  if (isStayPollBuilder) {
+    return (
+      <Screen topInset="sm">
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.pageTitle}>{tripCopy.stayPollLabel}</Text>
+          <Text style={styles.stepText}>{tripCopy.stayPollBuilderSubtitle}</Text>
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>{tripCopy.stayPollBuilderIntroTitle}</Text>
+            <Text style={styles.helperText}>
+              {tripCopy.stayPollBuilderIntroBody}
+            </Text>
+            <View style={styles.stayPollInfoCard}>
+              <Text style={styles.stayPollInfoTitle}>Coming next</Text>
+              <Text style={styles.stayPollInfoText}>
+                Voting will use top-3 ranking in a later step. For now, choose the
+                final stay candidates here.
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Selected stay options</Text>
+            <Text style={styles.helperText}>
+              Remove anything you do not want included before creating the
+              stay poll.
+            </Text>
+
+            <View style={styles.stayOptionsList}>
+              {stayPollOptions.length === 0 ? (
+                <View style={styles.emptyStateCard}>
+                  <Text style={styles.emptyStateTitle}>No stay options selected</Text>
+                  <Text style={styles.emptyStateBody}>
+                    {tripCopy.staySelectionEmptyBody}
+                  </Text>
+                </View>
+              ) : (
+                stayPollOptions.map((option) => {
+                  const normalizedLink = normalizeLink(option.link);
+                  const summaryItems = getStayOptionSummary(option);
+                  const isEditing = editingStayOptionId === option.source_note_id;
+                  return (
+                    <View
+                      key={option.source_note_id}
+                      style={styles.stayOptionCard}
+                    >
+                      <View style={styles.stayOptionHeader}>
+                        <View style={styles.stayOptionHeaderText}>
+                          <Text style={styles.stayOptionTitle}>{option.title}</Text>
+                          <Text style={styles.stayOptionMeta}>Stay option</Text>
+                        </View>
+                        <View style={styles.stayOptionActions}>
+                          {!isEditing ? (
+                            <Pressable
+                              onPress={() =>
+                                handleStartStayOptionEditing(option.source_note_id)
+                              }
+                              style={({ pressed }) => [
+                                styles.removeDateButton,
+                                pressed ? styles.removeDateButtonPressed : null,
+                              ]}
+                            >
+                              <Text style={styles.removeDateButtonText}>
+                                {summaryItems.length > 0 ? "Edit details" : "Add details"}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                          <Pressable
+                            onPress={() => handleRemoveStayOption(option.source_note_id)}
+                            style={({ pressed }) => [
+                              styles.removeDateButton,
+                              pressed ? styles.removeDateButtonPressed : null,
+                            ]}
+                          >
+                            <Text style={styles.removeDateButtonText}>Remove</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+
+                      {normalizedLink ? (
+                        <View style={styles.stayOptionLinkCard}>
+                          <View style={styles.stayOptionLinkTopRow}>
+                            <View style={styles.staySourceBadge}>
+                              <Text style={styles.staySourceBadgeText}>
+                                {getLinkTypeLabel(option.link)}
+                              </Text>
+                            </View>
+                            <Pressable
+                              onPress={() => handleOpenStayLink(option.link)}
+                              style={({ pressed }) => [
+                                styles.stayLinkAction,
+                                pressed ? styles.stayLinkActionPressed : null,
+                              ]}
+                            >
+                              <Text style={styles.stayLinkActionText}>View</Text>
+                            </Pressable>
+                          </View>
+                          <Text
+                            style={styles.stayOptionLinkValue}
+                            numberOfLines={1}
+                            ellipsizeMode="middle"
+                          >
+                            {normalizedLink}
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {isEditing ? (
+                        <View style={styles.stayDetailsEditor}>
+                          <AppInput
+                            label="Total price"
+                            placeholder="Optional"
+                            value={stayOptionEditor.total_price}
+                            onChangeText={(value) =>
+                              updateStayOptionField("total_price", value)
+                            }
+                          />
+                          <View style={styles.stayDetailsGrid}>
+                            <View style={styles.stayDetailsGridItem}>
+                              <AppInput
+                                label="Beds"
+                                placeholder="Optional"
+                                value={stayOptionEditor.beds}
+                                onChangeText={(value) =>
+                                  updateStayOptionField("beds", value)
+                                }
+                                keyboardType="number-pad"
+                              />
+                            </View>
+                            <View style={styles.stayDetailsGridItem}>
+                              <AppInput
+                                label="Bedrooms"
+                                placeholder="Optional"
+                                value={stayOptionEditor.bedrooms}
+                                onChangeText={(value) =>
+                                  updateStayOptionField("bedrooms", value)
+                                }
+                                keyboardType="number-pad"
+                              />
+                            </View>
+                          </View>
+                          <View style={styles.stayDetailsGrid}>
+                            <View style={styles.stayDetailsGridItem}>
+                              <AppInput
+                                label="Bathrooms"
+                                placeholder="Optional"
+                                value={stayOptionEditor.bathrooms}
+                                onChangeText={(value) =>
+                                  updateStayOptionField("bathrooms", value)
+                                }
+                                keyboardType="decimal-pad"
+                              />
+                            </View>
+                            <View style={styles.stayDetailsGridItem}>
+                              <AppInput
+                                label="Location"
+                                placeholder="Optional"
+                                value={stayOptionEditor.location}
+                                onChangeText={(value) =>
+                                  updateStayOptionField("location", value)
+                                }
+                              />
+                            </View>
+                          </View>
+                          <AppInput
+                            label="Note"
+                            placeholder="Optional"
+                            value={stayOptionEditor.note}
+                            onChangeText={(value) =>
+                              updateStayOptionField("note", value)
+                            }
+                            multiline
+                            style={styles.stayNoteInput}
+                          />
+                          <View style={styles.stayDetailActions}>
+                            <Pressable
+                              onPress={handleCancelStayOptionEditing}
+                              style={({ pressed }) => [
+                                styles.secondaryDetailButton,
+                                pressed ? styles.secondaryDetailButtonPressed : null,
+                              ]}
+                            >
+                              <Text style={styles.secondaryDetailButtonText}>
+                                Cancel
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={handleSaveStayOptionEditing}
+                              style={({ pressed }) => [
+                                styles.primaryDetailButton,
+                                pressed ? styles.primaryDetailButtonPressed : null,
+                              ]}
+                            >
+                              <Text style={styles.primaryDetailButtonText}>
+                                Save
+                              </Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      ) : summaryItems.length > 0 ? (
+                        <View style={styles.staySummaryList}>
+                          {summaryItems.map((item, index) => (
+                            <View
+                              key={`${option.source_note_id}-${index}`}
+                              style={styles.staySummaryPill}
+                            >
+                              <Text style={styles.staySummaryPillText}>{item}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          </View>
+
+          <View style={styles.footer}>
+            <Pressable
+              onPress={handleBackToStayIdeas}
+              style={styles.secondaryBtn}
+              disabled={saving}
+            >
+              <Text style={styles.secondaryBtnText}>Back</Text>
+            </Pressable>
+
+            <View style={styles.primaryAction}>
+              <AppButton
+                label="Create Stay Poll"
+                onPress={handleCreateStayPoll}
+                disabled={saving || stayPollOptions.length < 2}
+              />
+            </View>
+          </View>
+        </ScrollView>
+      </Screen>
     );
   }
 
@@ -529,7 +1055,7 @@ export default function TripSetupScreen() {
                 })}
               </View>
 
-              <Text style={styles.subTitle}>Accommodation</Text>
+              <Text style={styles.subTitle}>Stay</Text>
               <View style={styles.chipRow}>
                 {lodgingOptions.map((opt) => {
                   const active = selectedBudgetKeys.includes(budgetKey(opt));
@@ -814,6 +1340,166 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   reviewLine: { color: "#333", marginBottom: 4 },
+  stayPollInfoCard: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surface,
+    gap: spacing.xs,
+  },
+  stayPollInfoTitle: {
+    ...typography.label,
+    color: colors.text,
+  },
+  stayPollInfoText: {
+    ...typography.bodyMuted,
+  },
+  stayOptionsList: {
+    gap: spacing.sm,
+  },
+  stayOptionCard: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surface,
+    gap: spacing.md,
+  },
+  stayOptionHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  stayOptionHeaderText: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  stayOptionActions: {
+    alignItems: "flex-end",
+    gap: spacing.xs,
+  },
+  stayOptionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  stayOptionMeta: {
+    ...typography.bodyMuted,
+  },
+  stayOptionLinkCard: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: "#fbfaf8",
+    gap: spacing.sm,
+  },
+  stayOptionLinkTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  staySourceBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    backgroundColor: "#efe8dd",
+  },
+  staySourceBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#725f47",
+  },
+  stayLinkAction: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surface,
+  },
+  stayLinkActionPressed: {
+    opacity: 0.8,
+  },
+  stayLinkActionText: {
+    ...typography.label,
+    color: colors.primary,
+  },
+  stayOptionLinkValue: {
+    color: "#1d4ed8",
+    fontSize: 14,
+  },
+  stayDetailsEditor: {
+    gap: spacing.sm,
+  },
+  stayDetailsGrid: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  stayDetailsGridItem: {
+    flex: 1,
+  },
+  stayDetailActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: spacing.sm,
+  },
+  secondaryDetailButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  secondaryDetailButtonPressed: {
+    opacity: 0.82,
+  },
+  secondaryDetailButtonText: {
+    ...typography.button,
+    color: colors.text,
+  },
+  primaryDetailButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  primaryDetailButtonPressed: {
+    opacity: 0.82,
+  },
+  primaryDetailButtonText: {
+    ...typography.button,
+    color: colors.onPrimary,
+  },
+  stayNoteInput: {
+    minHeight: 88,
+    textAlignVertical: "top",
+  },
+  staySummaryList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  staySummaryPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: "#f3f4f6",
+  },
+  staySummaryPillText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
   footer: {
     marginTop: spacing.xl,
     flexDirection: "row",

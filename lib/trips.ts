@@ -3,7 +3,28 @@ import { supabase } from "../supabaseClient";
 import type { Database } from "../types/database.types";
 import type { CustomPollQuestion } from "../utils/polls";
 
-export type TripType = "bachelor" | "bachelorette" | "joint";
+export type TripType = Database["public"]["Enums"]["trip_type"];
+
+export const TRIP_TYPE_LABELS: Record<TripType, string> = {
+  bachelor: "Bachelor",
+  bachelorette: "Bachelorette",
+  joint: "Joint Bachelor/ette",
+  group: "Group Trip",
+};
+
+export const TRIP_TYPE_OPTIONS: ReadonlyArray<{
+  value: TripType;
+  label: string;
+}> = [
+  { value: "bachelor", label: TRIP_TYPE_LABELS.bachelor },
+  { value: "bachelorette", label: TRIP_TYPE_LABELS.bachelorette },
+  { value: "joint", label: TRIP_TYPE_LABELS.joint },
+  { value: "group", label: TRIP_TYPE_LABELS.group },
+] as const;
+
+export function getTripTypeLabel(type: TripType) {
+  return TRIP_TYPE_LABELS[type];
+}
 
 export type PlanningMode = "planner_decides" | "group_vote" | "creator_decides";
 
@@ -151,6 +172,8 @@ export type TripRow = {
   final_end_date: string | null;
   poll_sent_at: string | null;
   status: TripLifecycleStatus | string;
+  custom_poll_questions?: Database["public"]["Tables"]["trips"]["Row"]["custom_poll_questions"];
+  current_user_role?: TripRole;
   created_at: string;
 };
 
@@ -180,6 +203,45 @@ export async function getTripById(tripId: string) {
 
   if (error) throw error;
   return data as TripRow;
+}
+
+export async function updateTripTitle(params: {
+  tripId: string;
+  title: string;
+}) {
+  const { data, error } = await supabase
+    .from("trips")
+    .update({ title: params.title })
+    .eq("id", params.tripId)
+    .select(
+      "id, created_by, creator_id, type, title, trip_length_days, mode, final_start_date, final_end_date, poll_sent_at, status, created_at"
+    )
+    .single();
+
+  if (error) throw error;
+  return data as TripRow;
+}
+
+export async function updateTripType(params: {
+  tripId: string;
+  type: TripType;
+}) {
+  const { data, error } = await supabase
+    .from("trips")
+    .update({ type: params.type })
+    .eq("id", params.tripId)
+    .select(
+      "id, created_by, creator_id, type, title, trip_length_days, mode, final_start_date, final_end_date, poll_sent_at, status, created_at"
+    )
+    .single();
+
+  if (error) throw error;
+  return data as TripRow;
+}
+
+export async function deleteTrip(tripId: string) {
+  const { error } = await supabase.from("trips").delete().eq("id", tripId);
+  if (error) throw error;
 }
 
 export type TripMemberRow = {
@@ -370,6 +432,7 @@ export async function listMyTrips(userId: string) {
         final_end_date,
         poll_sent_at,
         status,
+        custom_poll_questions,
         created_at
       )
     `
@@ -380,7 +443,11 @@ export async function listMyTrips(userId: string) {
   if (error) throw error;
 
   // unwrap join shape
-  const trips = (data ?? []).map((row: any) => row.trips).filter(Boolean);
+  const trips = (data ?? [])
+    .map((row: any) =>
+      row.trips ? { ...row.trips, current_user_role: row.role } : null
+    )
+    .filter(Boolean);
 
   // sort client-side (simpler + avoids foreignTable/order typing issues)
   trips.sort((a: any, b: any) =>

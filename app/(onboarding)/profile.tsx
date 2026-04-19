@@ -13,29 +13,17 @@ import { Screen } from "../../components/ui/Screen";
 import { supabase } from "../../supabaseClient";
 import { fetchMyProfile, upsertMyProfile } from "../../lib/profile";
 
-const airports = [
-  { code: "SFO", label: "SFO — San Francisco" },
-  { code: "OAK", label: "OAK — Oakland" },
-  { code: "SJC", label: "SJC — San Jose" },
-  { code: "SMF", label: "SMF — Sacramento" },
-  { code: "LAX", label: "LAX — Los Angeles" },
-  { code: "SAN", label: "SAN — San Diego" },
-];
-
 export default function OnboardingProfileScreen() {
   const guessedTz = useMemo(
     () => Localization.getCalendars()?.[0]?.timeZone ?? null,
     []
   );
   const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [homeAirport, setHomeAirport] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const trimmedFirstName = firstName.trim();
 
   const save = async () => {
-    const trimmedFirstName = firstName.trim();
-    const trimmedLastName = lastName.trim();
-    const fullName = `${trimmedFirstName} ${trimmedLastName}`.trim();
+    const fullName = trimmedFirstName;
 
     if (!trimmedFirstName) {
       Alert.alert(
@@ -62,7 +50,6 @@ export default function OnboardingProfileScreen() {
         display_name: trimmedFirstName,
         onboarding_completed: true,
         timezone: guessedTz,
-        home_airport: homeAirport,
       } as const;
       console.log("[onboarding-profile] saving payload", {
         userId,
@@ -112,122 +99,73 @@ export default function OnboardingProfileScreen() {
   };
 
   return (
-    <Screen
-      title="Finish Setup"
-      subtitle="This helps your friends recognize you in the trip."
-    >
-      <Text style={styles.label}>First Name</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Michael"
-        value={firstName}
-        onChangeText={setFirstName}
-        editable={!loading}
-        autoCapitalize="words"
-        autoFocus
-        returnKeyType="next"
-      />
+    <Screen title="What should we call you?" topInset="sm">
+      <View style={styles.content}>
+        <View style={styles.formBlock}>
+          <Text style={styles.label}>First Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Michael"
+            value={firstName}
+            onChangeText={setFirstName}
+            editable={!loading}
+            autoCapitalize="words"
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              if (!loading && trimmedFirstName) {
+                void save();
+              }
+            }}
+          />
+        </View>
 
-      <Text style={[styles.label, styles.labelSpacing]}>Last Name</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Li"
-        value={lastName}
-        onChangeText={setLastName}
-        editable={!loading}
-        autoCapitalize="words"
-        returnKeyType="done"
-      />
-
-      <Text style={[styles.label, styles.labelSpacing]}>
-        Home Airport (Optional)
-      </Text>
-      <View style={styles.pills}>
         <Pressable
-          onPress={() => setHomeAirport(null)}
-          style={[styles.pill, homeAirport === null && styles.pillSelected]}
-          disabled={loading}
+          style={[
+            styles.button,
+            !trimmedFirstName || loading ? styles.buttonDisabled : null,
+          ]}
+          onPress={save}
+          disabled={loading || !trimmedFirstName}
         >
           <Text
             style={[
-              styles.pillText,
-              homeAirport === null && styles.pillTextSelected,
+              styles.buttonText,
+              !trimmedFirstName || loading ? styles.buttonTextDisabled : null,
             ]}
           >
-            Skip
+            {loading ? "Saving..." : "Continue"}
           </Text>
         </Pressable>
-
-        {airports.map((a) => {
-          const selected = homeAirport === a.code;
-          return (
-            <Pressable
-              key={a.code}
-              onPress={() => setHomeAirport(a.code)}
-              style={[styles.pill, selected && styles.pillSelected]}
-              disabled={loading}
-            >
-              <Text
-                style={[styles.pillText, selected && styles.pillTextSelected]}
-              >
-                {a.code}
-              </Text>
-            </Pressable>
-          );
-        })}
       </View>
-
-      <Pressable
-        style={[
-          styles.button,
-          (loading || !firstName.trim()) && { opacity: 0.7 },
-        ]}
-        onPress={save}
-        disabled={loading || !firstName.trim()}
-      >
-        <Text style={styles.buttonText}>
-          {loading ? "Saving..." : "Continue"}
-        </Text>
-      </Pressable>
-
-      <Text style={styles.small}>
-        We’ll use your timezone + home airport later for smarter flight
-        suggestions.
-      </Text>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  label: { fontSize: 14, fontWeight: "600", marginBottom: 6 },
-  labelSpacing: { marginTop: 12 },
+  content: {
+    paddingTop: 8,
+    gap: 24,
+  },
+  formBlock: {
+    gap: 8,
+  },
+  label: { fontSize: 14, fontWeight: "600" },
   input: {
     borderWidth: 1,
     borderColor: "#ddd",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 16,
   },
-
-  pills: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
-  pill: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "white",
-  },
-  pillSelected: { backgroundColor: "black", borderColor: "black" },
-  pillText: { fontWeight: "700", color: "#333" },
-  pillTextSelected: { color: "white" },
-
   button: {
-    marginTop: 22,
     backgroundColor: "black",
     borderRadius: 999,
     paddingVertical: 14,
+  },
+  buttonDisabled: {
+    backgroundColor: "#e6e6e6",
   },
   buttonText: {
     color: "white",
@@ -235,6 +173,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
   },
-
-  small: { marginTop: 14, color: "#777", fontSize: 12, lineHeight: 16 },
+  buttonTextDisabled: {
+    color: "#8b8b8b",
+  },
 });

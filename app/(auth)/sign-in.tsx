@@ -173,6 +173,9 @@ export default function SignInScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Welcome to Togetli</Text>
+      <Text style={styles.valueLine}>
+        Plan trips with your group, without the chaos.
+      </Text>
       <Text style={styles.subtitle}>
         {mode === "sign-in"
           ? "Sign in with your email and password."
@@ -201,12 +204,6 @@ export default function SignInScreen() {
         editable={!loading}
       />
 
-      <Pressable style={styles.button} onPress={submit} disabled={loading}>
-        <Text style={styles.buttonText}>
-          {loading ? "Working..." : mode === "sign-in" ? "Sign in" : "Create account"}
-        </Text>
-      </Pressable>
-
       <Pressable
         style={[styles.googleButton, googleLoading && styles.buttonDisabled]}
         onPress={continueWithGoogle}
@@ -214,6 +211,16 @@ export default function SignInScreen() {
       >
         <Text style={styles.googleButtonText}>
           {googleLoading ? "Opening Google..." : "Continue with Google"}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={[styles.button, loading && styles.buttonDisabled]}
+        onPress={submit}
+        disabled={loading || googleLoading}
+      >
+        <Text style={styles.buttonText}>
+          {loading ? "Working..." : mode === "sign-in" ? "Sign in" : "Create account"}
         </Text>
       </Pressable>
 
@@ -235,6 +242,7 @@ export default function SignInScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 24, paddingTop: 80 },
   title: { fontSize: 26, fontWeight: "700", marginBottom: 8 },
+  valueLine: { fontSize: 16, color: "#111", marginBottom: 8 },
   subtitle: { fontSize: 15, color: "#555", marginBottom: 32 },
   label: { fontSize: 14, fontWeight: "500", marginBottom: 6 },
   input: {
@@ -246,9 +254,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontSize: 16,
   },
-  button: { backgroundColor: "black", paddingVertical: 14, borderRadius: 999, marginTop: 8 },
-  buttonText: { color: "white", textAlign: "center", fontWeight: "600", fontSize: 16 },
   googleButton: {
+    backgroundColor: "black",
+    paddingVertical: 14,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+  googleButtonText: {
+    color: "white",
+    textAlign: "center",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  button: {
     borderWidth: 1,
     borderColor: "#ddd",
     backgroundColor: "white",
@@ -256,12 +274,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     marginTop: 12,
   },
-  googleButtonText: {
-    color: "#111",
-    textAlign: "center",
-    fontWeight: "600",
-    fontSize: 16,
-  },
+  buttonText: { color: "#111", textAlign: "center", fontWeight: "600", fontSize: 16 },
   buttonDisabled: { opacity: 0.7 },
   linkButton: { paddingVertical: 12 },
   linkText: { color: "#111", textAlign: "center", fontWeight: "500" },

@@ -731,7 +731,7 @@ export type Database = {
     Enums: {
       budget_type: "flight" | "lodging"
       trip_role: "creator" | "planner" | "guest"
-      trip_type: "bachelor" | "bachelorette" | "joint"
+      trip_type: "bachelor" | "bachelorette" | "joint" | "group"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -861,7 +861,7 @@ export const Constants = {
     Enums: {
       budget_type: ["flight", "lodging"],
       trip_role: ["creator", "planner", "guest"],
-      trip_type: ["bachelor", "bachelorette", "joint"],
+      trip_type: ["bachelor", "bachelorette", "joint", "group"],
     },
   },
 } as const

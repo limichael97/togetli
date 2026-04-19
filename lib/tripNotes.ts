@@ -86,6 +86,23 @@ export async function updateTripNotePin(params: {
   return data as TripNoteRow;
 }
 
+export async function updateTripNoteCategory(params: {
+  tripNoteId: string;
+  category: TripIdeaCategory;
+}): Promise<TripNoteRow> {
+  const { data, error } = await supabase
+    .from("trip_notes")
+    .update({ category: params.category })
+    .eq("id", params.tripNoteId)
+    .select(
+      "id, trip_id, created_by, title, content, link, category, is_pinned, created_at, updated_at"
+    )
+    .single();
+
+  if (error) throw error;
+  return data as TripNoteRow;
+}
+
 export async function listTripNoteReactions(
   noteIds: string[]
 ): Promise<TripNoteReactionRow[]> {
