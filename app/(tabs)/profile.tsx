@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import { supabase } from "../../supabaseClient";
 import { useProfile } from "../../lib/useProfile";
+import { colors, radius } from "../../lib/theme";
 
 export default function ProfileScreen() {
   const { profile } = useProfile();
@@ -29,8 +30,11 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>{name}</Text>
-        <Text style={styles.body}>Manage your account and app access.</Text>
+        <View style={styles.profileCard}>
+          <Text style={styles.eyebrow}>Account</Text>
+          <Text style={styles.title}>{name}</Text>
+          <Text style={styles.body}>Manage your account and app access.</Text>
+        </View>
 
         <Pressable
           onPress={handleSignOut}
@@ -53,36 +57,54 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f7f7f7",
+    backgroundColor: colors.background,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 22,
     paddingTop: 24,
+    gap: 16,
+  },
+  profileCard: {
+    padding: 18,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  eyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 8,
   },
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#111",
+    color: colors.text,
+    letterSpacing: -0.3,
     marginBottom: 8,
   },
   body: {
     fontSize: 15,
     lineHeight: 21,
-    color: "#666",
-    marginBottom: 24,
+    color: colors.textMuted,
   },
   signOutButton: {
+    minHeight: 52,
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 999,
-    backgroundColor: "#111",
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
     alignItems: "center",
+    justifyContent: "center",
   },
   signOutButtonText: {
-    color: "#fff",
+    color: colors.primaryText,
     fontWeight: "700",
   },
-  signOutButtonPressed: { opacity: 0.82 },
+  signOutButtonPressed: { opacity: 0.86 },
   signOutButtonDisabled: { opacity: 0.45 },
 });

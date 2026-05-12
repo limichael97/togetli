@@ -379,8 +379,6 @@ export async function upsertPollResponse(params: {
     custom_poll_answers: customPollAnswers,
   };
 
-  console.log("[polls] upsertPollResponse payload", payload);
-
   const { error } = await supabase
     .from("poll_responses")
     .upsert(payload, { onConflict: "trip_id,user_id" });
@@ -401,19 +399,12 @@ export function hasAvailabilityPollResponse(
   response:
     | Pick<
         PollResponseDetailRow,
-        "available_date_option_ids" | "flight_budget_label" | "lodging_budget_label"
+        "available_date_option_ids"
       >
     | null
     | undefined
 ) {
-  return (
-    !!response &&
-    (
-      (response.available_date_option_ids?.length ?? 0) > 0 ||
-      !!response.flight_budget_label ||
-      !!response.lodging_budget_label
-    )
-  );
+  return !!response && (response.available_date_option_ids?.length ?? 0) > 0;
 }
 
 export function hasStayPollResponse(

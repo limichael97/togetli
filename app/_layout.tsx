@@ -11,6 +11,7 @@ import * as Linking from "expo-linking";
 import { supabase } from "../supabaseClient";
 import { useAuthStore } from "../store/useAuthStore";
 import { fetchMyProfile } from "../lib/profile";
+import { colors } from "../lib/theme";
 
 type GateState = "loading" | "auth" | "onboarding" | "app";
 const PROFILE_FETCH_TIMEOUT_MS = 8000;
@@ -307,6 +308,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: colors.background,
   },
 });

@@ -39,7 +39,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: 22,
     paddingTop: spacing.screenTop,
   },
   containerNoTopInset: {
@@ -51,10 +51,12 @@ const styles = StyleSheet.create({
   title: {
     ...typography.title,
     color: colors.text,
+    letterSpacing: -0.2,
     marginBottom: spacing.sm,
   },
   subtitle: {
     ...typography.bodyMuted,
+    lineHeight: 21,
     marginBottom: spacing.xl,
   },
   content: {

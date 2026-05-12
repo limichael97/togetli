@@ -131,6 +131,6 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   typeOptionTextSelected: {
-    color: colors.onPrimary,
+    color: colors.primaryText,
   },
 });

@@ -21,7 +21,7 @@ function normalizeTripStage(
 }
 
 export function isTripReady(data: TripOverview): boolean {
-  return data.dateOptions.length > 0 && data.budgetOptions.length > 0;
+  return data.dateOptions.length > 0;
 }
 
 export function getTripStage(data: TripOverview): TripStage {

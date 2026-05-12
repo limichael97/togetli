@@ -133,6 +133,11 @@ export default function TripDetailScreen() {
         if (!mounted) return;
         if (stayPollRow.error) throw stayPollRow.error;
 
+        const eligibleVotingUserIds = new Set(
+          res.members
+            .filter((member) => member.role !== "creator")
+            .map((member) => member.user_id)
+        );
         setData(res);
         setPendingInvites(inviteRows);
         setResponderUserIds(
@@ -141,9 +146,12 @@ export default function TripDetailScreen() {
               responseDetails
                 .filter(hasAvailabilityPollResponse)
                 .map((row) => row.user_id)
-                .filter(Boolean)
+                .filter(
+                  (id): id is string =>
+                    !!id && eligibleVotingUserIds.has(id)
+                )
             )
-          ) as string[]
+          )
         );
         setStayResponderUserIds(
           Array.from(
@@ -358,6 +366,7 @@ export default function TripDetailScreen() {
   const draftReady = stage === "draft" && isTripReady(data);
   const plannerCount = members.filter((m) => m.role === "planner").length;
   const guestCount = members.filter((m) => m.role === "guest").length;
+  const eligibleVotingMemberCount = plannerCount + guestCount;
   const hasResponded = !!userId && responderUserIds.includes(userId);
   const hasRespondedToStayPoll = !!userId && stayResponderUserIds.includes(userId);
   const canVoteAvailabilityPoll = role !== "creator";
@@ -414,10 +423,10 @@ export default function TripDetailScreen() {
 
     if (stage === "draft") {
       return {
-        label: draftReady ? "Review Availability Poll" : "Set Up Availability Poll",
+        label: draftReady ? "Review Date Poll" : "Set Up Date Poll",
         description: draftReady
-          ? "The availability poll is ready for review before it goes live."
-          : "Add the dates and budget guidance so the group can start voting.",
+          ? "The date poll is ready for review before it goes live."
+          : "Add the dates so the group can start voting.",
         onPress:
           canManageTrip
             ? () => router.push(`/(tabs)/trips/${tripId}/setup`)
@@ -428,9 +437,9 @@ export default function TripDetailScreen() {
 
     if (availabilityNeedsUserVote) {
       return {
-        label: "Vote on Availability Poll",
+        label: "Vote on Date Poll",
         description:
-          "Share your availability and budget before the group finalizes the trip.",
+          "Vote on the dates that work best so the group can lock the trip.",
         onPress: () =>
           router.push(`/(tabs)/trips/${tripId}/poll?pollKind=availability`),
         disabled: false,
@@ -450,10 +459,10 @@ export default function TripDetailScreen() {
       return {
         label: stayPollIsLive
           ? "Review Stay Poll Results"
-          : "Review Availability Poll Results",
+          : "Review Date Poll Results",
         description: stayPollIsLive
           ? "Track the stay rankings and see where the group is landing."
-          : "Review incoming availability responses and see where consensus is forming.",
+          : "Review incoming date votes and see where consensus is forming.",
         onPress: () =>
           router.push(
             stayPollIsLive
@@ -497,11 +506,11 @@ export default function TripDetailScreen() {
   const availabilityPollDescription =
     stage === "draft"
       ? canManageTrip
-        ? "Finish setup and send the availability poll when details are ready."
-        : "A planner is still preparing the availability poll."
+        ? "Finish setup and send the date poll when details are ready."
+        : "A planner is still preparing the date poll."
       : stage === "polling"
-        ? `${responderUserIds.length} of ${members.length} members responded so far.`
-        : `${responderUserIds.length} of ${members.length} members submitted availability responses.`;
+        ? `${responderUserIds.length} of ${eligibleVotingMemberCount} members voted so far.`
+        : `${responderUserIds.length} of ${eligibleVotingMemberCount} members voted.`;
   const availabilityPollAction = (() => {
     if (stage === "draft") {
       if (!canManageTrip) return null;
@@ -549,7 +558,7 @@ export default function TripDetailScreen() {
       : tripCopy.stayPollBrowseDescription
     : stayPollIsFinalized
       ? finalizedStayOption?.title ?? "A stay has been finalized."
-      : `${stayResponderUserIds.length} of ${members.length} members responded so far.`;
+      : `${stayResponderUserIds.length} of ${members.length} members voted so far.`;
   const stayPollAction = (() => {
     if (!stayPollExists) {
       return {
@@ -783,7 +792,7 @@ export default function TripDetailScreen() {
         <View style={styles.pollCard}>
           <View style={styles.pollCardHeader}>
             <View style={styles.pollCardTextBlock}>
-              <Text style={styles.cardTitle}>Availability Poll</Text>
+              <Text style={styles.cardTitle}>Date Poll</Text>
               <Text style={styles.cardBody}>{availabilityPollDescription}</Text>
             </View>
             <View style={styles.pollStateBadge}>

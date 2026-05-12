@@ -25,8 +25,12 @@ import {
   type PendingTripInvite,
 } from "../../../lib/invites";
 import { useAuthStore } from "../../../store/useAuthStore";
-import { checkIfUserResponded, listPollResponderUserIds } from "../../../lib/polls";
+import {
+  listPollResponseDetails,
+  type PollResponseDetailRow,
+} from "../../../lib/polls";
 import { leaveTrip } from "../../../lib/members";
+import { colors } from "../../../lib/theme";
 import {
   getTripStage,
   isPollTrip,
@@ -134,7 +138,7 @@ function GroupStatusList({
   );
 }
 
-function getTripDestinationLabel(trip: TripOverview["trip"]) {
+function getTripDestination(trip: TripOverview["trip"]) {
   const tripWithDestination = trip as TripOverview["trip"] & {
     destination?: string | null;
     destination_name?: string | null;
@@ -147,7 +151,183 @@ function getTripDestinationLabel(trip: TripOverview["trip"]) {
     tripWithDestination.destination_name ??
     tripWithDestination.destination;
 
-  return destination?.trim() || "Not set yet";
+  return destination?.trim() || null;
+}
+
+function formatDateOptionLabel(option: TripOverview["dateOptions"][number]) {
+  const range = `${option.start_date} → ${option.end_date}`;
+  return option.label ? `${option.label}: ${range}` : range;
+}
+
+type PrimaryAction = {
+  label: string;
+  ctaLabel?: string;
+  description: string;
+  onPress?: () => void;
+  disabled: boolean;
+};
+
+function getPrimaryAction({
+  canFinalizeDates,
+  canManageTrip,
+  canViewResults,
+  dateOptionCount,
+  draftReady,
+  hasCurrentUserVoted,
+  isFinalized,
+  isDestinationMissing,
+  isPlannedMode,
+  isPolling,
+  leadingDateLabel,
+  leadingVoteCount,
+  role,
+  stage,
+  waitingCount,
+  onOpenNotes,
+  onOpenPoll,
+  onOpenResults,
+  onOpenSetup,
+  onOpenTravel,
+}: {
+  canFinalizeDates: boolean;
+  canManageTrip: boolean;
+  canViewResults: boolean;
+  dateOptionCount: number;
+  draftReady: boolean;
+  hasCurrentUserVoted: boolean;
+  isFinalized: boolean;
+  isDestinationMissing: boolean;
+  isPlannedMode: boolean;
+  isPolling: boolean;
+  leadingDateLabel: string | null;
+  leadingVoteCount: number;
+  role: TripRole;
+  stage: TripStage;
+  waitingCount: number;
+  onOpenNotes: () => void;
+  onOpenPoll: () => void;
+  onOpenResults: () => void;
+  onOpenSetup: () => void;
+  onOpenTravel: () => void;
+}): PrimaryAction {
+  if (isFinalized) {
+    if (isDestinationMissing) {
+      return {
+        label: "Choose destination",
+        ctaLabel: "Continue Planning",
+        description: "Now that dates are locked, pick where the group is going.",
+        onPress: onOpenTravel,
+        disabled: false,
+      };
+    }
+
+    return {
+      label: "Dates finalized",
+      ctaLabel: "Continue Planning",
+      description: "The group has locked the trip dates.",
+      onPress: onOpenTravel,
+      disabled: false,
+    };
+  }
+
+  if (dateOptionCount === 0) {
+    return {
+      label: "Start Date Poll",
+      ctaLabel: "Continue Setup",
+      description: "Add a few date options so the group can vote.",
+      onPress: canManageTrip ? onOpenSetup : undefined,
+      disabled: !canManageTrip,
+    };
+  }
+
+  if (isPlannedMode) {
+    return {
+      label: canManageTrip ? "Finish Trip Details" : "Open Notes Board",
+      description: canManageTrip
+        ? "Use setup to lock in the basic trip details without sending a poll."
+        : "Use the shared notes board while the trip details are being finalized.",
+      onPress: canManageTrip ? onOpenSetup : onOpenNotes,
+      disabled: false,
+    };
+  }
+
+  if (isPolling) {
+    if (leadingVoteCount === 0) {
+      const canVote = role === "planner" || role === "guest";
+      return {
+        label: "Get the first vote",
+        ctaLabel: canVote ? "Vote Now" : "View Results",
+        description: "No one has voted yet. Start the date decision.",
+        onPress: canVote ? onOpenPoll : onOpenResults,
+        disabled: false,
+      };
+    }
+
+    if (canFinalizeDates && leadingDateLabel) {
+      return {
+        label: "Ready to finalize dates",
+        ctaLabel: "View Results",
+        description: `${leadingDateLabel} is leading with ${leadingVoteCount} vote${leadingVoteCount === 1 ? "" : "s"}.`,
+        onPress: onOpenResults,
+        disabled: false,
+      };
+    }
+
+    if (waitingCount > 0 && leadingDateLabel) {
+      return {
+        label: `Waiting on ${waitingCount} ${waitingCount === 1 ? "person" : "people"}`,
+        ctaLabel: "View Results",
+        description: `Leading: ${leadingDateLabel}. Keep the group moving.`,
+        onPress: onOpenResults,
+        disabled: false,
+      };
+    }
+
+    if ((role === "planner" || role === "guest") && !hasCurrentUserVoted) {
+      return {
+        label: "Vote on Date Poll",
+        ctaLabel: "Vote Now",
+        description: "Vote on the dates that work best so the group can lock the trip.",
+        onPress: onOpenPoll,
+        disabled: false,
+      };
+    }
+
+    return {
+      label: "View Date Poll Results",
+      ctaLabel: "View Results",
+      description: leadingDateLabel
+        ? `Leading: ${leadingDateLabel}.`
+        : "Check the latest date votes.",
+      onPress: canViewResults ? onOpenResults : undefined,
+      disabled: !canViewResults,
+    };
+  }
+
+  if (stage === "draft") {
+    if (draftReady) {
+      return {
+        label: "Review Poll",
+        description:
+          "Your poll is ready. Send it, then invite the group right after.",
+        onPress: canManageTrip ? onOpenSetup : undefined,
+        disabled: !canManageTrip,
+      };
+    }
+    return {
+      label: "Continue Setup",
+      description: "Add the dates for this trip.",
+      onPress: canManageTrip ? onOpenSetup : undefined,
+      disabled: !canManageTrip,
+    };
+  }
+
+  return {
+    label: "Open Travel Board",
+    description: "Add your travel details and check the group plan.",
+    onPress: onOpenTravel,
+    disabled: false,
+  };
 }
 
 export default function TripDetailScreen() {
@@ -163,10 +343,8 @@ export default function TripDetailScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [copyInviteLoading, setCopyInviteLoading] = useState(false);
-  const [hasResponded, setHasResponded] = useState(false);
-  const [checkingResponse, setCheckingResponse] = useState(false);
   const [pendingInvites, setPendingInvites] = useState<PendingTripInvite[]>([]);
-  const [responderUserIds, setResponderUserIds] = useState<string[]>([]);
+  const [pollResponses, setPollResponses] = useState<PollResponseDetailRow[]>([]);
   const [inviteLinks, setInviteLinks] = useState<
     Partial<Record<Exclude<TripRole, "creator">, string>>
   >({});
@@ -182,15 +360,16 @@ export default function TripDetailScreen() {
         setErrorMsg(null);
         setLoading(true);
         const res = await getTripOverview(tripId);
-        const inviteRows = await listPendingTripInvites(tripId);
-        const responderIds =
+        const [inviteRows, responseRows] = await Promise.all([
+          listPendingTripInvites(tripId),
           getTripStage(res) === "polling"
-            ? await listPollResponderUserIds(tripId)
-            : [];
+            ? listPollResponseDetails(tripId)
+            : Promise.resolve([]),
+        ]);
         if (!mounted) return;
         setData(res);
         setPendingInvites(inviteRows);
-        setResponderUserIds(responderIds);
+        setPollResponses(responseRows);
       } catch (e: any) {
         if (mounted) setErrorMsg(e?.message ?? "Failed to load trip");
       } finally {
@@ -202,36 +381,6 @@ export default function TripDetailScreen() {
       mounted = false;
     };
   }, [tripId]);
-
-  useEffect(() => {
-    if (!userId || !tripId) return;
-
-    const stage = data ? getTripStage(data) : null;
-    const myMember = data?.members.find((m) => m.user_id === userId);
-    const canManageTrip = myMember?.role === "creator" || myMember?.role === "planner";
-
-    if (stage !== "polling" || canManageTrip) {
-      setHasResponded(false);
-      return;
-    }
-
-    let active = true;
-    (async () => {
-      try {
-        setCheckingResponse(true);
-        const responded = await checkIfUserResponded(tripId, userId);
-        if (active) setHasResponded(responded);
-      } catch {
-        if (active) setHasResponded(false);
-      } finally {
-        if (active) setCheckingResponse(false);
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [data, tripId, userId]);
 
   const getInviteLink = async (role: Exclude<TripRole, "creator">) => {
     if (!tripId) throw new Error("Missing trip id.");
@@ -348,7 +497,6 @@ export default function TripDetailScreen() {
   const tripTypeLabel = TRIP_TYPE_LABELS[trip.type];
   const canManageTrip = role === "creator" || role === "planner";
   const canInvite = canManageTrip;
-  const canViewResults = canManageTrip;
   const isPollMode = isPollTrip(trip.mode);
   const isPlannedMode = !isPollMode;
   const plannerCount = members.filter((m) => m.role === "planner").length;
@@ -359,17 +507,71 @@ export default function TripDetailScreen() {
   const isFinalized = stage === "finalized";
   const draftReady = stage === "draft" && isTripReady(data);
   const hasFinalDates = !!trip.final_start_date && !!trip.final_end_date;
+  const eligibleVotingMembers = members.filter((member) => member.role !== "creator");
+  const eligibleVotingUserIds = new Set(
+    eligibleVotingMembers.map((member) => member.user_id)
+  );
+  const totalMemberCount = eligibleVotingMembers.length;
+  const votedUserIds = Array.from(
+    new Set(
+      pollResponses
+        .filter(
+          (response) =>
+            !!response.user_id &&
+            eligibleVotingUserIds.has(response.user_id) &&
+            (response.available_date_option_ids?.length ?? 0) > 0
+        )
+        .map((response) => response.user_id)
+        .filter((id): id is string => !!id)
+    )
+  );
+  const votedCount = votedUserIds.length;
+  const waitingCount = Math.max(totalMemberCount - votedCount, 0);
+  const hasCurrentUserVoted = !!userId && votedUserIds.includes(userId);
+  const dateVoteCounts = new Map<string, number>();
+
+  dateOptions.forEach((option) => {
+    dateVoteCounts.set(option.id, 0);
+  });
+  pollResponses.forEach((response) => {
+    if (!response.user_id || !eligibleVotingUserIds.has(response.user_id)) return;
+    (response.available_date_option_ids ?? []).forEach((optionId) => {
+      dateVoteCounts.set(optionId, (dateVoteCounts.get(optionId) ?? 0) + 1);
+    });
+  });
+
+  const leadingVoteCount = Math.max(0, ...Array.from(dateVoteCounts.values()));
+  const leadingDateOptions =
+    leadingVoteCount > 0
+      ? dateOptions.filter(
+          (option) => (dateVoteCounts.get(option.id) ?? 0) === leadingVoteCount
+        )
+      : [];
+  const leadingDateOption = leadingDateOptions[0] ?? null;
+  const leadingDateLabel = leadingDateOption
+    ? formatDateOptionLabel(leadingDateOption)
+    : null;
+  const hasDatePollTie = leadingDateOptions.length > 1;
+  const canFinalizeDates =
+    canManageTrip && !!leadingDateOption && !hasDatePollTie && leadingVoteCount > 0;
+  const canViewResults = canManageTrip || hasCurrentUserVoted;
 
   const finalPlanSummary =
     isFinalized && hasFinalDates
       ? `${trip.final_start_date} → ${trip.final_end_date}`
       : "No final plan locked in yet.";
-  const dateDecisionValue = hasFinalDates
-    ? `${trip.final_start_date} → ${trip.final_end_date}`
-    : isPolling
-      ? "Waiting on votes"
-      : "Not started";
-  const destinationDecisionValue = getTripDestinationLabel(trip);
+  const dateDecisionValue = (() => {
+    if (hasFinalDates) return `${trip.final_start_date} → ${trip.final_end_date}`;
+    if (leadingDateLabel) return `Leading: ${leadingDateLabel}`;
+    if (isPolling && dateOptions.length > 0) return "Waiting on votes";
+    return "Not started";
+  })();
+  const destination = getTripDestination(trip);
+  const destinationDecisionValue = destination
+    ? destination
+    : hasFinalDates
+      ? "Not decided yet."
+      : "Decide after dates.";
 
   const statusSentence = (() => {
     if (isPlannedMode) {
@@ -393,119 +595,34 @@ export default function TripDetailScreen() {
     }
     if (stage === "polling") {
       return canViewResults
-        ? "Awaiting responses. Review the signal as the group weighs in."
-        : hasResponded
-          ? "Your response is in. The group plan will take shape from here."
-          : "The date poll is live. Vote on the dates that work best.";
+        ? "Awaiting votes. Review the signal as the group weighs in."
+        : "The date poll is live. Vote on the dates that work best.";
     }
     return "The plan is locked in. Review the itinerary and coordinate details with your group.";
   })();
 
-  const primaryAction = (() => {
-    if (isPlannedMode) {
-      if (isFinalized) {
-        return {
-          label: "Open Travel Board",
-          description: "Add your travel details and check the group plan.",
-          onPress: () => router.push(`/(app)/trips/${tripId}/travel`),
-          disabled: false,
-        };
-      }
-
-      return {
-        label: canManageTrip ? "Finish Trip Details" : "Open Notes Board",
-        description: canManageTrip
-          ? "Use setup to lock in the basic trip details without sending a poll."
-          : "Use the shared notes board while the trip details are being finalized.",
-        onPress: () =>
-          canManageTrip
-            ? router.push(`/(app)/trips/${tripId}/setup`)
-            : router.push(`/(app)/trips/${tripId}/notes`),
-        disabled: false,
-      };
-    }
-
-    if (role === "guest") {
-      if (isFinalized) {
-        return {
-          label: "Open Travel Board",
-          description: "Add your travel details and check the group plan.",
-          onPress: () => router.push(`/(app)/trips/${tripId}/travel`),
-          disabled: false,
-        };
-      }
-      if (isPolling && !hasResponded) {
-        return {
-          label: "Vote on Date Poll",
-          ctaLabel: "Vote Now",
-          description:
-            "Vote on the dates that work best so the group can lock the trip.",
-          onPress: () => router.push(`/(app)/trips/${tripId}/poll`),
-          disabled: checkingResponse,
-        };
-      }
-      if (isPolling && hasResponded) {
-        return {
-          label: "You're All Set",
-          description:
-            "You already responded. There’s nothing else you need to do right now.",
-          onPress: undefined,
-          disabled: true,
-        };
-      }
-      return {
-        label: "Awaiting Poll",
-        description:
-          "The trip is still being prepared before guests can respond.",
-        onPress: undefined,
-        disabled: true,
-      };
-    }
-
-    if (stage === "draft") {
-      if (draftReady) {
-        return {
-          label: "Review Poll",
-          description:
-            "Your poll is ready. Send it, then invite the group right after.",
-          onPress:
-            canManageTrip
-              ? () => router.push(`/(app)/trips/${tripId}/setup`)
-              : undefined,
-          disabled: !canManageTrip,
-        };
-      }
-      return {
-        label: "Continue Setup",
-        description:
-          "Add the dates for this trip.",
-        onPress:
-          canManageTrip
-            ? () => router.push(`/(app)/trips/${tripId}/setup`)
-            : undefined,
-        disabled: !canManageTrip,
-      };
-    }
-
-    if (stage === "polling") {
-      return {
-        label: "Awaiting Responses",
-        description:
-          "The poll is live. Check responses as they come in.",
-        onPress: canViewResults
-          ? () => router.push(`/(app)/trips/${tripId}/poll-results`)
-          : undefined,
-        disabled: !canViewResults,
-      };
-    }
-
-    return {
-      label: "Open Travel Board",
-      description: "Add your travel details and check the group plan.",
-      onPress: () => router.push(`/(app)/trips/${tripId}/travel`),
-      disabled: false,
-    };
-  })();
+  const primaryAction = getPrimaryAction({
+    canFinalizeDates,
+    canManageTrip,
+    canViewResults,
+    dateOptionCount: dateOptions.length,
+    draftReady,
+    hasCurrentUserVoted,
+    isFinalized,
+    isDestinationMissing: !destination,
+    isPlannedMode,
+    isPolling,
+    leadingDateLabel,
+    leadingVoteCount,
+    role,
+    stage,
+    waitingCount,
+    onOpenNotes: () => router.push(`/(app)/trips/${tripId}/notes`),
+    onOpenPoll: () => router.push(`/(app)/trips/${tripId}/poll`),
+    onOpenResults: () => router.push(`/(app)/trips/${tripId}/poll-results`),
+    onOpenSetup: () => router.push(`/(app)/trips/${tripId}/setup`),
+    onOpenTravel: () => router.push(`/(app)/trips/${tripId}/travel`),
+  });
 
   const datePollStatus =
     stage === "draft" ? "Setup" : stage === "polling" ? "Live" : "Completed";
@@ -515,8 +632,10 @@ export default function TripDetailScreen() {
         ? "Add date options and send the date poll when details are ready."
         : "A planner is still preparing the date poll."
       : stage === "polling"
-        ? `${responderUserIds.length} of ${members.length} members responded so far.`
-        : `${responderUserIds.length} of ${members.length} members submitted date votes.`;
+        ? leadingDateLabel
+          ? `${hasDatePollTie ? "Tie" : `Leading: ${leadingDateLabel}`} · ${votedCount} of ${totalMemberCount} voted`
+          : `No votes yet · 0 of ${totalMemberCount} voted`
+        : `${votedCount} of ${totalMemberCount} voted`;
   const datePollAction = (() => {
     if (stage === "draft") {
       if (!canManageTrip) return null;
@@ -527,14 +646,14 @@ export default function TripDetailScreen() {
     }
 
     if (stage === "polling") {
-      if (role === "guest" && !hasResponded) {
+      if ((role === "planner" || role === "guest") && !hasCurrentUserVoted) {
         return {
           label: "Vote Now",
           onPress: () => router.push(`/(app)/trips/${tripId}/poll`),
         };
       }
 
-      if (hasResponded || canManageTrip) {
+      if (canViewResults) {
         return {
           label: "View Results",
           onPress: () => router.push(`/(app)/trips/${tripId}/poll-results`),
@@ -555,14 +674,11 @@ export default function TripDetailScreen() {
   const joinedMemberNames = members.map(getTripMemberDisplayName);
   const hasActiveGuestInviteLink = pendingInvites.some((invite) => invite.role === "guest");
   const hasActivePlannerInviteLink = pendingInvites.some((invite) => invite.role === "planner");
-  const respondedMemberNames = members
-    .filter((member) => responderUserIds.includes(member.user_id))
+  const votedMemberNames = eligibleVotingMembers
+    .filter((member) => votedUserIds.includes(member.user_id))
     .map(getTripMemberDisplayName);
-  const waitingMemberNames = members
-    .filter(
-      (member) =>
-        member.role !== "creator" && !responderUserIds.includes(member.user_id)
-    )
+  const waitingMemberNames = eligibleVotingMembers
+    .filter((member) => !votedUserIds.includes(member.user_id))
     .map(getTripMemberDisplayName);
 
   return (
@@ -792,10 +908,10 @@ export default function TripDetailScreen() {
           {isPollMode && isPolling ? (
             <>
               <View style={styles.divider} />
-              <Text style={styles.groupStatusLabel}>Responded members</Text>
+              <Text style={styles.groupStatusLabel}>Voted members</Text>
               <GroupStatusList
-                items={respondedMemberNames}
-                emptyText="No responses yet."
+                items={votedMemberNames}
+                emptyText="No votes yet."
               />
               <View style={styles.divider} />
               <Text style={styles.groupStatusLabel}>Waiting on members</Text>
@@ -885,29 +1001,30 @@ export default function TripDetailScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.background,
     padding: 20,
     paddingTop: 16,
     paddingBottom: 32,
     gap: 16,
   },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  empty: { color: "#666" },
-  error: { color: "tomato" },
+  empty: { color: colors.textMuted },
+  error: { color: colors.danger },
 
   heroCard: {
     padding: 20,
     borderRadius: 24,
-    backgroundColor: "#f8f8f8",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#ececec",
+    borderColor: colors.border,
   },
   title: {
     fontSize: 28,
     fontWeight: "700",
     letterSpacing: -0.3,
-    color: "#111",
+    color: colors.text,
   },
-  meta: { marginTop: 6, color: "#666", fontSize: 15 },
+  meta: { marginTop: 6, color: colors.textMuted, fontSize: 15 },
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -918,19 +1035,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#111",
+    backgroundColor: colors.primary,
   },
-  roleBadgeText: { color: "#fff", fontWeight: "600", fontSize: 12 },
+  roleBadgeText: { color: colors.primaryText, fontWeight: "600", fontSize: 12 },
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#ececec",
+    backgroundColor: colors.surfaceMuted,
   },
-  statusBadgeText: { color: "#333", fontWeight: "600", fontSize: 12 },
+  statusBadgeText: { color: colors.text, fontWeight: "600", fontSize: 12 },
   statusSentence: {
     marginTop: 14,
-    color: "#555",
+    color: colors.textMuted,
     fontSize: 15,
     lineHeight: 21,
   },
@@ -940,19 +1057,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#e5e5e5",
+    borderColor: colors.border,
     alignSelf: "flex-start",
   },
-  leaveBtnText: { color: "#333", fontWeight: "600" },
+  leaveBtnText: { color: colors.text, fontWeight: "600" },
   leaveBtnPressed: { opacity: 0.7 },
 
   primaryCard: {
     padding: 20,
     borderRadius: 20,
-    backgroundColor: "#111",
+    borderWidth: 1,
+    borderColor: colors.primaryMuted,
+    backgroundColor: colors.primarySoft,
   },
   primaryCardEyebrow: {
-    color: "rgba(255,255,255,0.7)",
+    color: colors.inkSoft,
     fontSize: 12,
     fontWeight: "700",
     textTransform: "uppercase",
@@ -960,24 +1079,24 @@ const styles = StyleSheet.create({
   },
   primaryCardTitle: {
     marginTop: 8,
-    color: "#fff",
+    color: colors.ink,
     fontSize: 24,
     fontWeight: "700",
   },
   primaryCardBody: {
     marginTop: 10,
-    color: "rgba(255,255,255,0.82)",
+    color: colors.inkSoft,
     fontSize: 15,
     lineHeight: 21,
   },
   primaryCtaButton: {
     marginTop: 18,
-    backgroundColor: "#fff",
+    backgroundColor: colors.primary,
     paddingVertical: 14,
     borderRadius: 999,
   },
   primaryCtaButtonText: {
-    color: "#111",
+    color: colors.primaryText,
     textAlign: "center",
     fontWeight: "700",
     fontSize: 15,
@@ -986,7 +1105,7 @@ const styles = StyleSheet.create({
   primaryCtaButtonDisabled: { opacity: 0.45 },
   primaryCardHint: {
     marginTop: 18,
-    color: "rgba(255,255,255,0.7)",
+    color: colors.textMuted,
   },
 
   sectionBlock: {
@@ -995,27 +1114,27 @@ const styles = StyleSheet.create({
   sectionHeading: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#111",
+    color: colors.text,
   },
 
   card: {
     padding: 16,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#ececec",
-    backgroundColor: "#fff",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     gap: 12,
   },
   pollCard: {
     padding: 16,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#ececec",
-    backgroundColor: "#fff",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     gap: 14,
   },
   secondaryPollCard: {
-    backgroundColor: "#fafafa",
+    backgroundColor: colors.surfaceMuted,
   },
   pollCardHeader: {
     flexDirection: "row",
@@ -1031,10 +1150,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: "#111",
+    backgroundColor: colors.primary,
   },
   pollStateBadgeText: {
-    color: "#fff",
+    color: colors.primaryText,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -1042,31 +1161,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: "#ececec",
+    backgroundColor: colors.surfaceMuted,
   },
   secondaryPollStateBadgeText: {
-    color: "#333",
+    color: colors.text,
     fontSize: 12,
     fontWeight: "700",
   },
   cardTitle: {
-    color: "#111",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "700",
   },
   cardBody: {
-    color: "#555",
+    color: colors.textMuted,
     fontSize: 14,
     lineHeight: 20,
   },
   cardHintText: {
-    color: "#666",
+    color: colors.textMuted,
     fontSize: 14,
     lineHeight: 20,
   },
   divider: {
     height: 1,
-    backgroundColor: "#efefef",
+    backgroundColor: colors.border,
   },
   summaryRow: {
     flexDirection: "row",
@@ -1081,19 +1200,19 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#666",
+    color: colors.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   summaryValue: {
     fontSize: 15,
     lineHeight: 20,
-    color: "#111",
+    color: colors.text,
   },
   groupStatusLabel: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#666",
+    color: colors.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
@@ -1103,26 +1222,26 @@ const styles = StyleSheet.create({
   groupStatusItem: {
     fontSize: 15,
     lineHeight: 20,
-    color: "#111",
+    color: colors.text,
   },
   groupStatusEmpty: {
     fontSize: 14,
-    color: "#666",
+    color: colors.textMuted,
   },
   groupStatusNote: {
     fontSize: 14,
     lineHeight: 20,
-    color: "#555",
+    color: colors.textMuted,
   },
   inlineAction: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#e5e5e5",
+    borderColor: colors.border,
   },
   inlineActionText: {
-    color: "#111",
+    color: colors.text,
     fontWeight: "600",
   },
   inlineActionPressed: { opacity: 0.7 },
@@ -1133,25 +1252,25 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
-  inviteRoleLabel: { color: "#666", marginRight: 4 },
+  inviteRoleLabel: { color: colors.textMuted, marginRight: 4 },
   inviteRoleOption: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: colors.border,
   },
-  inviteRoleOptionActive: { backgroundColor: "#111", borderColor: "#111" },
-  inviteRoleOptionText: { color: "#333", fontWeight: "500" },
-  inviteRoleOptionTextActive: { color: "#fff" },
+  inviteRoleOptionActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  inviteRoleOptionText: { color: colors.text, fontWeight: "500" },
+  inviteRoleOptionTextActive: { color: colors.primaryText },
   cardButton: {
     marginTop: 2,
-    backgroundColor: "#111",
+    backgroundColor: colors.primary,
     paddingVertical: 12,
     borderRadius: 999,
   },
   cardButtonText: {
-    color: "#fff",
+    color: colors.primaryText,
     textAlign: "center",
     fontWeight: "600",
     fontSize: 15,
@@ -1162,11 +1281,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#e5e5e5",
-    backgroundColor: "#fff",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   secondaryCardButtonText: {
-    color: "#111",
+    color: colors.text,
     textAlign: "center",
     fontWeight: "600",
     fontSize: 15,
@@ -1176,8 +1295,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#ececec",
-    backgroundColor: "#fff",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     gap: 12,
   },
   progressRow: {
@@ -1189,22 +1308,22 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 999,
-    backgroundColor: "#d5d5d5",
+    backgroundColor: colors.border,
   },
   progressDotComplete: {
-    backgroundColor: "#111",
+    backgroundColor: colors.primary,
   },
   progressLabel: {
-    color: "#666",
+    color: colors.textMuted,
     fontSize: 14,
   },
   progressLabelComplete: {
-    color: "#111",
+    color: colors.text,
     fontWeight: "600",
   },
   finalPlanText: {
     marginTop: 12,
-    color: "#111",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "600",
   },

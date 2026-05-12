@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     gap: spacing.md,
   },
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   primaryButtonText: {
-    color: colors.onPrimary,
+    color: colors.primaryText,
     fontWeight: "700",
   },
   secondaryButton: {

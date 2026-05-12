@@ -15,7 +15,7 @@ import {
   hasAvailabilityPollResponse,
   getMyPollResponse,
   getTripSetupData,
-  listPollResponses,
+  listPollResponseDetails,
   parseStayPollDefinition,
   parseStayPollRankings,
   type StayPollDefinition,
@@ -102,18 +102,13 @@ export default function TripPollScreen() {
 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
 
   const [dateOptions, setDateOptions] = useState<
     { id: string; start_date: string; end_date: string; label: string | null }[]
   >([]);
-  const [budgetOptions, setBudgetOptions] = useState<
-    { id: string; type: "flight" | "lodging"; label: string; is_any: boolean }[]
-  >([]);
   const [selectedDateIds, setSelectedDateIds] = useState<string[]>([]);
-  const [selectedFlightBudgetId, setSelectedFlightBudgetId] = useState<string | null>(null);
-  const [selectedLodgingBudgetId, setSelectedLodgingBudgetId] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [activeRole, setActiveRole] = useState<"creator" | "planner" | "guest" | null>(null);
   const [isCreator, setIsCreator] = useState(false);
@@ -145,7 +140,6 @@ export default function TripPollScreen() {
         const res = await getTripSetupData(tripId);
         if (!mounted) return;
         setDateOptions(res.dateOptions);
-        setBudgetOptions(res.budgetOptions);
         setIsPolling(getTripStage(res) === "polling");
         const stayDefinition = parseStayPollDefinition(
           res.trip.custom_poll_questions
@@ -165,24 +159,6 @@ export default function TripPollScreen() {
           hasAvailabilityPollResponse(existingResponse)
         );
         setSelectedDateIds(existingResponse?.available_date_option_ids ?? []);
-        setSelectedFlightBudgetId(
-          existingResponse?.flight_budget_label
-            ? res.budgetOptions.find(
-                (option) =>
-                  option.type === "flight" &&
-                  option.label === existingResponse.flight_budget_label
-              )?.id ?? null
-            : null
-        );
-        setSelectedLodgingBudgetId(
-          existingResponse?.lodging_budget_label
-            ? res.budgetOptions.find(
-                (option) =>
-                  option.type === "lodging" &&
-                  option.label === existingResponse.lodging_budget_label
-              )?.id ?? null
-            : null
-        );
 
         if (stayDefinition) {
           const parsedRankings = parseStayPollRankings(
@@ -196,10 +172,16 @@ export default function TripPollScreen() {
           );
           setDateVoteCounts({});
         } else {
-          const pollResponses = await listPollResponses(tripId);
+          const eligibleVotingUserIds = new Set(
+            res.members
+              .filter((tripMember) => tripMember.role !== "creator")
+              .map((tripMember) => tripMember.user_id)
+          );
+          const pollResponses = await listPollResponseDetails(tripId);
           if (!mounted) return;
           const counts: Record<string, number> = {};
           pollResponses.forEach((response) => {
+            if (!response.user_id || !eligibleVotingUserIds.has(response.user_id)) return;
             response.available_date_option_ids?.forEach((dateId) => {
               counts[dateId] = (counts[dateId] ?? 0) + 1;
             });
@@ -224,28 +206,11 @@ export default function TripPollScreen() {
     );
   };
 
-  const selectFlightBudget = (id: string) => {
-    setSelectedFlightBudgetId((prev) => (prev === id ? null : id));
-  };
-
-  const selectLodgingBudget = (id: string) => {
-    setSelectedLodgingBudgetId((prev) => (prev === id ? null : id));
-  };
-
   const selectedDates = useMemo(
     () => dateOptions.filter((d) => selectedDateIds.includes(d.id)),
     [dateOptions, selectedDateIds]
   );
 
-  const selectedFlightBudget = useMemo(
-    () => budgetOptions.find((b) => b.id === selectedFlightBudgetId) ?? null,
-    [budgetOptions, selectedFlightBudgetId]
-  );
-
-  const selectedLodgingBudget = useMemo(
-    () => budgetOptions.find((b) => b.id === selectedLodgingBudgetId) ?? null,
-    [budgetOptions, selectedLodgingBudgetId]
-  );
   const selectedCount = selectedDateIds.length;
   const canSubmitAvailability = selectedCount > 0 && !submitting;
   const activePollKind =
@@ -302,8 +267,8 @@ export default function TripPollScreen() {
         tripId,
         userId,
         availableDateOptionIds: selectedDateIds,
-        flightBudgetLabel: selectedFlightBudget?.label ?? null,
-        lodgingBudgetLabel: selectedLodgingBudget?.label ?? null,
+        flightBudgetLabel: null,
+        lodgingBudgetLabel: null,
         customPollAnswers:
           existingResponse?.custom_poll_answers &&
           typeof existingResponse.custom_poll_answers === "object" &&
@@ -578,7 +543,7 @@ export default function TripPollScreen() {
           <Text style={styles.confirmationTitle}>You're all set</Text>
           <Text style={styles.confirmationBody}>
             {hasExistingAvailabilityResponse
-              ? "Your availability response has been updated."
+              ? "Your date vote has been updated."
               : "Waiting on others."}
           </Text>
           <Pressable
@@ -597,8 +562,8 @@ export default function TripPollScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.stepText}>Step {step} of 3</Text>
-      <Text style={styles.title}>Trip Poll</Text>
+      <Text style={styles.stepText}>Step {step} of 2</Text>
+      <Text style={styles.title}>Date Poll</Text>
 
       {step === 1 ? (
         <>
@@ -662,56 +627,6 @@ export default function TripPollScreen() {
 
       {step === 2 ? (
         <>
-          <Text style={styles.sectionTitle}>What’s your comfortable budget?</Text>
-
-          <Text style={styles.subTitle}>Flights</Text>
-          <View style={styles.chipRow}>
-            {budgetOptions
-              .filter((b) => b.type === "flight")
-              .map((b) => {
-                const active = selectedFlightBudgetId === b.id;
-                return (
-                  <Pressable
-                    key={b.id}
-                    onPress={() => selectFlightBudget(b.id)}
-                    style={[styles.chip, active ? styles.chipActive : null]}
-                  >
-                    <Text
-                      style={[styles.chipText, active ? styles.chipTextActive : null]}
-                    >
-                      {b.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-          </View>
-
-          <Text style={styles.subTitle}>Stay</Text>
-          <View style={styles.chipRow}>
-            {budgetOptions
-              .filter((b) => b.type === "lodging")
-              .map((b) => {
-                const active = selectedLodgingBudgetId === b.id;
-                return (
-                  <Pressable
-                    key={b.id}
-                    onPress={() => selectLodgingBudget(b.id)}
-                    style={[styles.chip, active ? styles.chipActive : null]}
-                  >
-                    <Text
-                      style={[styles.chipText, active ? styles.chipTextActive : null]}
-                    >
-                      {b.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-          </View>
-        </>
-      ) : null}
-
-      {step === 3 ? (
-        <>
           <Text style={styles.sectionTitle}>Review</Text>
 
           <Text style={styles.reviewLabel}>Dates</Text>
@@ -725,27 +640,13 @@ export default function TripPollScreen() {
               </Text>
             ))
           )}
-
-          <Text style={styles.reviewLabel}>Budget</Text>
-          {!selectedFlightBudget && !selectedLodgingBudget ? (
-            <Text style={styles.muted}>None selected</Text>
-          ) : (
-            <>
-              <Text style={styles.reviewLine}>
-                FLIGHT: {selectedFlightBudget?.label ?? "None selected"}
-              </Text>
-              <Text style={styles.reviewLine}>
-                LODGING: {selectedLodgingBudget?.label ?? "None selected"}
-              </Text>
-            </>
-          )}
         </>
       ) : null}
 
       <View style={styles.footer}>
         {step > 1 ? (
           <Pressable
-            onPress={() => setStep((s) => (s === 2 ? 1 : 2))}
+            onPress={() => setStep(1)}
             style={styles.secondaryBtn}
             disabled={submitting}
           >
@@ -755,20 +656,20 @@ export default function TripPollScreen() {
           <View />
         )}
 
-        {step === 3 ? (
+        {step === 2 ? (
           <Text style={styles.selectionCount}>{selectedCount} selected</Text>
         ) : null}
 
         <Pressable
-          onPress={() => (step === 3 ? handleSubmit() : setStep((s) => (s + 1) as 2 | 3))}
+          onPress={() => (step === 2 ? handleSubmit() : setStep(2))}
           style={[
             styles.primaryBtn,
-            step === 3 && !canSubmitAvailability ? styles.primaryBtnDisabled : null,
+            step === 2 && !canSubmitAvailability ? styles.primaryBtnDisabled : null,
           ]}
-          disabled={step === 3 ? !canSubmitAvailability : submitting}
+          disabled={step === 2 ? !canSubmitAvailability : submitting}
         >
           <Text style={styles.primaryBtnText}>
-            {submitting ? "Submitting..." : step === 3 ? "Submit Availability" : "Next"}
+            {submitting ? "Submitting..." : step === 2 ? "Submit Vote" : "Next"}
           </Text>
         </Pressable>
       </View>

@@ -15,7 +15,6 @@ import {
   getTripSetupData,
   markPollSent,
   markTripPlanned,
-  saveTripLength,
   saveStayPollDefinition,
   upsertTripBudgetOptions,
   upsertTripDateOptions,
@@ -32,7 +31,9 @@ import { colors, radius, spacing, typography } from "../../../../lib/theme";
 import { getTripAwareCopy } from "../../../../lib/tripCopy";
 import type { TripType } from "../../../../lib/trips";
 
-const LENGTH_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
+const DATE_POLL_INVITE_MESSAGE =
+  "Invite at least 1 more person before sending the date poll.";
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 type StayPollOption = BaseStayPollOption;
 type StayPollOptionEditorState = {
   total_price: string;
@@ -75,6 +76,56 @@ function isValidDateInput(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function parseIsoDate(value: string) {
+  if (!isValidDateInput(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function toIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addMonths(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
+}
+
+function getMonthLabel(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatDateDisplay(value: string) {
+  const date = parseIsoDate(value);
+  if (!date) return "Select date";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function getCalendarDays(month: Date) {
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
+  const lastDay = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+  const days: Array<Date | null> = [];
+
+  for (let i = 0; i < firstDay.getDay(); i += 1) {
+    days.push(null);
+  }
+
+  for (let day = 1; day <= lastDay.getDate(); day += 1) {
+    days.push(new Date(month.getFullYear(), month.getMonth(), day));
+  }
+
+  return days;
 }
 
 function sortDateOptions(options: TripDateOptionInput[]) {
@@ -214,6 +265,42 @@ function DateOptionItem({
   );
 }
 
+function DateSelectRow({
+  label,
+  value,
+  active,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.dateSelectRow,
+        active ? styles.dateSelectRowActive : null,
+        pressed ? styles.dateSelectRowPressed : null,
+      ]}
+    >
+      <View>
+        <Text style={styles.dateSelectLabel}>{label}</Text>
+        <Text
+          style={[
+            styles.dateSelectValue,
+            !value ? styles.dateSelectValueMuted : null,
+          ]}
+        >
+          {value ? formatDateDisplay(value) : "Select date"}
+        </Text>
+      </View>
+      <Text style={styles.dateSelectIso}>{value || "YYYY-MM-DD"}</Text>
+    </Pressable>
+  );
+}
+
 export default function TripSetupScreen() {
   const params = useLocalSearchParams();
   const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
@@ -229,14 +316,18 @@ export default function TripSetupScreen() {
   const [reviewing, setReviewing] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [lengthChoice, setLengthChoice] = useState<number | "custom">(3);
-  const [customLength, setCustomLength] = useState("");
   const [dateOptions, setDateOptions] = useState<TripDateOptionInput[]>([]);
   const [newStart, setNewStart] = useState("");
   const [newEnd, setNewEnd] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [showDateForm, setShowDateForm] = useState(false);
   const [dateFormError, setDateFormError] = useState<string | null>(null);
+  const [activeDateField, setActiveDateField] = useState<"start" | "end" | null>(
+    null
+  );
+  const [visibleCalendarMonth, setVisibleCalendarMonth] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  );
 
   const [selectedBudgetKeys, setSelectedBudgetKeys] = useState<string[]>([]);
   const [flightOptions, setFlightOptions] = useState<TripBudgetOptionInput[]>(BASE_FLIGHT_OPTIONS);
@@ -244,6 +335,7 @@ export default function TripSetupScreen() {
   const [canManageTrip, setCanManageTrip] = useState(false);
   const [tripMode, setTripMode] = useState<"poll" | "planned">("poll");
   const [tripType, setTripType] = useState<TripType | null>(null);
+  const [eligibleVotingMemberCount, setEligibleVotingMemberCount] = useState(0);
   const [stayPollOptions, setStayPollOptions] = useState<StayPollOption[]>([]);
   const [editingStayOptionId, setEditingStayOptionId] = useState<string | null>(
     null
@@ -282,6 +374,10 @@ export default function TripSetupScreen() {
 
         const member = res.members.find((m) => m.user_id === userId);
         setCanManageTrip(member?.role === "creator" || member?.role === "planner");
+        setEligibleVotingMemberCount(
+          res.members.filter((m) => m.role === "planner" || m.role === "guest")
+            .length
+        );
         setTripMode(res.trip.mode === "planned" ? "planned" : "poll");
         setTripType(res.trip.type);
         setExistingFinalDates({
@@ -298,14 +394,6 @@ export default function TripSetupScreen() {
             }))
           )
         );
-
-        if (res.trip.trip_length_days && res.trip.trip_length_days <= 7) {
-          setLengthChoice(res.trip.trip_length_days as number);
-          setCustomLength("");
-        } else if (res.trip.trip_length_days) {
-          setLengthChoice("custom");
-          setCustomLength(String(res.trip.trip_length_days));
-        }
 
         const existingBudget = res.budgetOptions.map((b) => ({
           type: b.type,
@@ -337,22 +425,14 @@ export default function TripSetupScreen() {
     };
   }, [tripId, userId]);
 
-  const resolvedLength =
-    lengthChoice === "custom" ? Number(customLength) : Number(lengthChoice);
-
   const selectedBudgets = useMemo(() => {
     const options = [...flightOptions, ...lodgingOptions];
     const selected = new Set(selectedBudgetKeys);
     return options.filter((o) => selected.has(budgetKey(o)));
   }, [flightOptions, lodgingOptions, selectedBudgetKeys]);
 
-  const selectedFlightBudgets = selectedBudgets.filter((option) => option.type === "flight");
-  const selectedLodgingBudgets = selectedBudgets.filter((option) => option.type === "lodging");
-
   const builderError =
-    !resolvedLength || Number.isNaN(resolvedLength) || resolvedLength <= 0
-      ? "Enter a valid trip length."
-      : dateOptions.length === 0
+    dateOptions.length === 0
         ? "Add at least one date option."
         : dateOptions.some(
               (option) =>
@@ -363,12 +443,12 @@ export default function TripSetupScreen() {
           ? "Fix invalid date options before continuing."
           : null;
 
-  const toggleBudget = (option: TripBudgetOptionInput) => {
-    const key = budgetKey(option);
-    setSelectedBudgetKeys((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
-  };
+  const datePollEligibilityError =
+    tripMode === "poll" &&
+    !isStayPollBuilder &&
+    eligibleVotingMemberCount < 1
+      ? DATE_POLL_INVITE_MESSAGE
+      : null;
 
   const validateNewDateOption = () => {
     const start = newStart.trim();
@@ -388,6 +468,34 @@ export default function TripSetupScreen() {
     );
     if (duplicate) return "That date range is already added.";
     return null;
+  };
+
+  const openDatePicker = (field: "start" | "end") => {
+    const currentValue = field === "start" ? newStart : newEnd;
+    const currentDate = parseIsoDate(currentValue) ?? new Date();
+    setVisibleCalendarMonth(
+      new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+    );
+    setActiveDateField(field);
+    setDateFormError(null);
+  };
+
+  const selectCalendarDate = (date: Date) => {
+    const value = toIsoDate(date);
+    if (activeDateField === "start") {
+      setNewStart(value);
+      if (newEnd && newEnd < value) {
+        setNewEnd(value);
+      }
+      setActiveDateField("end");
+      setVisibleCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+      return;
+    }
+
+    if (activeDateField === "end") {
+      setNewEnd(value);
+      setActiveDateField(null);
+    }
   };
 
   const addDateOption = () => {
@@ -411,6 +519,7 @@ export default function TripSetupScreen() {
     setNewStart("");
     setNewEnd("");
     setNewLabel("");
+    setActiveDateField(null);
     setShowDateForm(false);
   };
 
@@ -420,7 +529,6 @@ export default function TripSetupScreen() {
 
   const persistBuilder = async () => {
     if (!tripId) return;
-    await saveTripLength(tripId, resolvedLength);
     await upsertTripDateOptions(tripId, dateOptions);
     await upsertTripBudgetOptions(tripId, selectedBudgets);
   };
@@ -428,6 +536,10 @@ export default function TripSetupScreen() {
   const handleOpenReview = async () => {
     if (builderError) {
       Alert.alert("Trip details incomplete", builderError);
+      return;
+    }
+    if (datePollEligibilityError) {
+      Alert.alert("Invite members first", datePollEligibilityError);
       return;
     }
 
@@ -444,17 +556,30 @@ export default function TripSetupScreen() {
 
   const handleSendPoll = async () => {
     if (!tripId) return;
+    if (builderError) {
+      Alert.alert("Trip details incomplete", builderError);
+      return;
+    }
+    if (datePollEligibilityError) {
+      Alert.alert("Invite members first", datePollEligibilityError);
+      return;
+    }
 
     try {
       setSaving(true);
       await persistBuilder();
       await markPollSent(tripId);
-      router.replace(`/(tabs)/trips/${tripId}/invite?sent=1`);
+      router.replace(`/(tabs)/trips/${tripId}`);
     } catch (e: any) {
       Alert.alert("Failed to send poll", e?.message ?? String(e));
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleInviteMembers = () => {
+    if (!tripId) return;
+    router.push(`/(tabs)/trips/${tripId}/members`);
   };
 
   const handleFinalizeTrip = async () => {
@@ -625,6 +750,8 @@ export default function TripSetupScreen() {
       Alert.alert("Couldn't open link", e?.message ?? String(e));
     }
   };
+
+  const calendarDays = getCalendarDays(visibleCalendarMonth);
 
   if (!tripId) {
     return (
@@ -922,62 +1049,19 @@ export default function TripSetupScreen() {
         {!reviewing ? (
           <>
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Trip Length</Text>
-              <Text style={styles.helperText}>Pick the length.</Text>
-              <View style={styles.chipRow}>
-                {LENGTH_OPTIONS.map((len) => (
-                  <Pressable
-                    key={len}
-                    onPress={() => setLengthChoice(len)}
-                    style={[styles.chip, lengthChoice === len ? styles.chipActive : null]}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        lengthChoice === len ? styles.chipTextActive : null,
-                      ]}
-                    >
-                      {len} days
-                    </Text>
-                  </Pressable>
-                ))}
-                <Pressable
-                  onPress={() => setLengthChoice("custom")}
-                  style={[
-                    styles.chip,
-                    lengthChoice === "custom" ? styles.chipActive : null,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      lengthChoice === "custom" ? styles.chipTextActive : null,
-                    ]}
-                  >
-                    Custom
-                  </Text>
-                </Pressable>
-              </View>
-
-              {lengthChoice === "custom" ? (
-                <AppInput
-                  label="Custom trip length"
-                  placeholder="Enter number of days"
-                  keyboardType="number-pad"
-                  value={customLength}
-                  onChangeText={setCustomLength}
-                />
-              ) : null}
-            </View>
-
-            <View style={styles.sectionCard}>
               <Text style={styles.sectionTitle}>Dates</Text>
               <Text style={styles.helperText}>
-                {tripMode === "planned" ? "Add the trip dates." : "Add the date options."}
+                {tripMode === "planned"
+                  ? "Choose the trip dates."
+                  : "Add a few date options for the group to vote on."}
               </Text>
 
               <Pressable
-                onPress={() => setShowDateForm((v) => !v)}
+                onPress={() => {
+                  setShowDateForm((isOpen) => !isOpen);
+                  setActiveDateField(null);
+                  setDateFormError(null);
+                }}
                 style={styles.textButton}
               >
                 <Text style={styles.textButtonText}>
@@ -988,23 +1072,116 @@ export default function TripSetupScreen() {
               {showDateForm ? (
                 <View style={styles.formCard}>
                   <Text style={styles.formTitle}>Add dates</Text>
-                  <AppInput
-                    label="Start date"
-                    placeholder="YYYY-MM-DD"
-                    value={newStart}
-                    onChangeText={setNewStart}
-                    autoCapitalize="none"
-                  />
-                  <AppInput
-                    label="End date"
-                    placeholder="YYYY-MM-DD"
-                    value={newEnd}
-                    onChangeText={setNewEnd}
-                    autoCapitalize="none"
-                  />
+                  <Text style={styles.formHelperText}>
+                    Pick a start and end date. Dates save in YYYY-MM-DD format.
+                  </Text>
+                  <View style={styles.dateSelectStack}>
+                    <DateSelectRow
+                      label="Start date"
+                      value={newStart}
+                      active={activeDateField === "start"}
+                      onPress={() => openDatePicker("start")}
+                    />
+                    <DateSelectRow
+                      label="End date"
+                      value={newEnd}
+                      active={activeDateField === "end"}
+                      onPress={() => openDatePicker("end")}
+                    />
+                  </View>
+
+                  {activeDateField ? (
+                    <View style={styles.calendarCard}>
+                      <View style={styles.calendarHeader}>
+                        <Pressable
+                          onPress={() =>
+                            setVisibleCalendarMonth((current) =>
+                              addMonths(current, -1)
+                            )
+                          }
+                          style={({ pressed }) => [
+                            styles.calendarNavButton,
+                            pressed ? styles.calendarNavButtonPressed : null,
+                          ]}
+                        >
+                          <Text style={styles.calendarNavText}>‹</Text>
+                        </Pressable>
+                        <View style={styles.calendarHeaderTextBlock}>
+                          <Text style={styles.calendarTitle}>
+                            {getMonthLabel(visibleCalendarMonth)}
+                          </Text>
+                          <Text style={styles.calendarSubtitle}>
+                            Selecting {activeDateField === "start" ? "start" : "end"} date
+                          </Text>
+                        </View>
+                        <Pressable
+                          onPress={() =>
+                            setVisibleCalendarMonth((current) =>
+                              addMonths(current, 1)
+                            )
+                          }
+                          style={({ pressed }) => [
+                            styles.calendarNavButton,
+                            pressed ? styles.calendarNavButtonPressed : null,
+                          ]}
+                        >
+                          <Text style={styles.calendarNavText}>›</Text>
+                        </Pressable>
+                      </View>
+                      <View style={styles.weekdayRow}>
+                        {WEEKDAY_LABELS.map((day, index) => (
+                          <Text key={`${day}-${index}`} style={styles.weekdayText}>
+                            {day}
+                          </Text>
+                        ))}
+                      </View>
+                      <View style={styles.calendarGrid}>
+                        {calendarDays.map((date, index) => {
+                          if (!date) {
+                            return (
+                              <View
+                                key={`blank-${index}`}
+                                style={styles.calendarDayBlank}
+                              />
+                            );
+                          }
+
+                          const value = toIsoDate(date);
+                          const selected = value === newStart || value === newEnd;
+                          const inRange =
+                            !!newStart &&
+                            !!newEnd &&
+                            value > newStart &&
+                            value < newEnd;
+                          return (
+                            <Pressable
+                              key={value}
+                              onPress={() => selectCalendarDate(date)}
+                              style={({ pressed }) => [
+                                styles.calendarDay,
+                                inRange ? styles.calendarDayInRange : null,
+                                selected ? styles.calendarDaySelected : null,
+                                pressed ? styles.calendarDayPressed : null,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.calendarDayText,
+                                  selected ? styles.calendarDayTextSelected : null,
+                                ]}
+                              >
+                                {date.getDate()}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
+
                   <AppInput
                     label="Label"
-                    placeholder="Optional"
+                    placeholder="Optional, e.g. Long weekend"
                     value={newLabel}
                     onChangeText={setNewLabel}
                   />
@@ -1033,48 +1210,21 @@ export default function TripSetupScreen() {
               </View>
             </View>
 
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Budget</Text>
-              <Text style={styles.helperText}>Optional guidance for the group.</Text>
-
-              <Text style={styles.subTitle}>Flights</Text>
-              <View style={styles.chipRow}>
-                {flightOptions.map((opt) => {
-                  const active = selectedBudgetKeys.includes(budgetKey(opt));
-                  return (
-                    <Pressable
-                      key={budgetKey(opt)}
-                      onPress={() => toggleBudget(opt)}
-                      style={[styles.chip, active ? styles.chipActive : null]}
-                    >
-                      <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
-                        {opt.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              <Text style={styles.subTitle}>Stay</Text>
-              <View style={styles.chipRow}>
-                {lodgingOptions.map((opt) => {
-                  const active = selectedBudgetKeys.includes(budgetKey(opt));
-                  return (
-                    <Pressable
-                      key={budgetKey(opt)}
-                      onPress={() => toggleBudget(opt)}
-                      style={[styles.chip, active ? styles.chipActive : null]}
-                    >
-                      <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
-                        {opt.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-
             {builderError ? <Text style={styles.inlineError}>{builderError}</Text> : null}
+            {datePollEligibilityError ? (
+              <View style={styles.noticeCard}>
+                <Text style={styles.noticeText}>{datePollEligibilityError}</Text>
+                <Pressable
+                  onPress={handleInviteMembers}
+                  style={({ pressed }) => [
+                    styles.noticeButton,
+                    pressed ? styles.noticeButtonPressed : null,
+                  ]}
+                >
+                  <Text style={styles.noticeButtonText}>Invite Members</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </>
         ) : (
           <>
@@ -1090,14 +1240,7 @@ export default function TripSetupScreen() {
                   <Text style={styles.reviewStatValue}>{dateOptions.length}</Text>
                   <Text style={styles.reviewStatLabel}>Date options</Text>
                 </View>
-                <View style={styles.reviewStatCard}>
-                  <Text style={styles.reviewStatValue}>{selectedBudgets.length}</Text>
-                  <Text style={styles.reviewStatLabel}>Budget options</Text>
-                </View>
               </View>
-              <Text style={styles.reviewLead}>
-                Trip length: {resolvedLength} day{resolvedLength === 1 ? "" : "s"}
-              </Text>
               <Text style={styles.reviewLabel}>Dates</Text>
               {dateOptions.map((option, index) => (
                 <Text key={`${option.start_date}-${index}`} style={styles.reviewLine}>
@@ -1105,23 +1248,20 @@ export default function TripSetupScreen() {
                   {option.start_date} → {option.end_date}
                 </Text>
               ))}
-              <Text style={styles.reviewLabel}>Budget guidance</Text>
-              {selectedFlightBudgets.length === 0 && selectedLodgingBudgets.length === 0 ? (
-                <Text style={styles.muted}>None selected</Text>
-              ) : (
-                <>
-                  {selectedFlightBudgets.map((budget) => (
-                    <Text key={`flight-${budgetKey(budget)}`} style={styles.reviewLine}>
-                      FLIGHT: {budget.label}
-                    </Text>
-                  ))}
-                  {selectedLodgingBudgets.map((budget) => (
-                    <Text key={`lodging-${budgetKey(budget)}`} style={styles.reviewLine}>
-                      LODGING: {budget.label}
-                    </Text>
-                  ))}
-                </>
-              )}
+              {datePollEligibilityError ? (
+                <View style={styles.noticeCard}>
+                  <Text style={styles.noticeText}>{datePollEligibilityError}</Text>
+                  <Pressable
+                    onPress={handleInviteMembers}
+                    style={({ pressed }) => [
+                      styles.noticeButton,
+                      pressed ? styles.noticeButtonPressed : null,
+                    ]}
+                  >
+                    <Text style={styles.noticeButtonText}>Invite Members</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
           </>
         )}
@@ -1166,7 +1306,7 @@ export default function TripSetupScreen() {
             <AppButton
               label={saving ? "Saving..." : primaryLabel}
               onPress={reviewing ? (tripMode === "planned" ? handleFinalizeTrip : handleSendPoll) : handleOpenReview}
-              disabled={saving}
+              disabled={saving || !!datePollEligibilityError}
             />
           </View>
         </View>
@@ -1224,7 +1364,7 @@ const styles = StyleSheet.create({
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { color: colors.text, fontWeight: "500" as const },
-  chipTextActive: { color: colors.onPrimary },
+  chipTextActive: { color: colors.primaryText },
   textButton: {
     alignSelf: "flex-start",
     marginBottom: spacing.md,
@@ -1238,7 +1378,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   emptyStateTitle: {
@@ -1254,7 +1394,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     flexDirection: "row",
     alignItems: "center",
@@ -1277,7 +1417,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
   },
   removeDateButtonText: {
     ...typography.label,
@@ -1289,7 +1429,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: "#fff",
   },
   formTitle: {
@@ -1302,9 +1442,168 @@ const styles = StyleSheet.create({
     ...typography.bodyMuted,
     marginBottom: spacing.md,
   },
+  dateSelectStack: {
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  dateSelectRow: {
+    minHeight: 64,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  dateSelectRowActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  dateSelectRowPressed: {
+    opacity: 0.82,
+  },
+  dateSelectLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  dateSelectValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  dateSelectValueMuted: {
+    color: colors.textSubtle,
+  },
+  dateSelectIso: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  calendarCard: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "#fbfaf8",
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  calendarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  calendarHeaderTextBlock: {
+    flex: 1,
+    alignItems: "center",
+  },
+  calendarTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  calendarSubtitle: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  calendarNavButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  calendarNavButtonPressed: {
+    opacity: 0.72,
+  },
+  calendarNavText: {
+    fontSize: 24,
+    lineHeight: 26,
+    color: colors.text,
+  },
+  weekdayRow: {
+    flexDirection: "row",
+  },
+  weekdayText: {
+    width: `${100 / 7}%`,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textMuted,
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  calendarDayBlank: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+  },
+  calendarDay: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+  },
+  calendarDayInRange: {
+    backgroundColor: colors.primarySoft,
+  },
+  calendarDaySelected: {
+    backgroundColor: colors.primary,
+  },
+  calendarDayPressed: {
+    opacity: 0.75,
+  },
+  calendarDayText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  calendarDayTextSelected: {
+    color: colors.primaryText,
+  },
   inlineError: {
     color: "tomato",
     marginTop: spacing.sm,
+  },
+  noticeCard: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primaryMuted,
+    backgroundColor: colors.primarySoft,
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  noticeText: {
+    ...typography.body,
+    color: colors.ink,
+  },
+  noticeButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  noticeButtonPressed: {
+    opacity: 0.82,
+  },
+  noticeButtonText: {
+    ...typography.button,
+    color: colors.primaryText,
   },
   reviewStatsRow: {
     flexDirection: "row",
@@ -1316,7 +1615,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   reviewStatValue: {
@@ -1344,7 +1643,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     gap: spacing.xs,
   },
@@ -1362,7 +1661,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     gap: spacing.md,
   },
@@ -1392,7 +1691,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: "#fbfaf8",
     gap: spacing.sm,
   },
@@ -1419,7 +1718,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   stayLinkActionPressed: {
@@ -1478,7 +1777,7 @@ const styles = StyleSheet.create({
   },
   primaryDetailButtonText: {
     ...typography.button,
-    color: colors.onPrimary,
+    color: colors.primaryText,
   },
   stayNoteInput: {
     minHeight: 88,

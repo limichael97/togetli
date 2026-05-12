@@ -1,13 +1,21 @@
 export const colors = {
-  background: "#ffffff",
-  surface: "#ffffff",
+  background: "#F7F5F2",
+  surface: "#FFFFFF",
+  surfaceMuted: "#F1EFEB",
   text: "#111111",
-  textMuted: "#555555",
-  border: "#dddddd",
-  borderSoft: "#eeeeee",
-  primary: "#000000",
-  primaryDisabled: "#bbbbbb",
-  onPrimary: "#ffffff",
+  textMuted: "#6F6A64",
+  textSubtle: "#9A958F",
+  border: "#E7E2DB",
+  primary: "#C9822B",
+  primarySoft: "#FFF1D8",
+  primaryMuted: "#F4D7AE",
+  primaryText: "#FFFFFF",
+  ink: "#111111",
+  inkSoft: "#2A2724",
+  accent: "#F4C95D",
+  accentSoft: "#FFF2C2",
+  success: "#2F8F5B",
+  danger: "#D64545",
 };
 
 export const spacing = {
@@ -21,7 +29,8 @@ export const spacing = {
 };
 
 export const radius = {
-  md: 12,
+  md: 14,
+  lg: 20,
   pill: 999,
 };
 

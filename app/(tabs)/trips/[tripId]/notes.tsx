@@ -1279,7 +1279,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   filterChipTextSelected: {
-    color: colors.onPrimary,
+    color: colors.primaryText,
   },
   addIdeaButton: {
     alignSelf: "flex-start",
@@ -1294,7 +1294,7 @@ const styles = StyleSheet.create({
   },
   addIdeaButtonText: {
     ...typography.button,
-    color: colors.onPrimary,
+    color: colors.primaryText,
   },
   secondaryToolbarButton: {
     alignSelf: "flex-start",
@@ -1334,7 +1334,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     gap: spacing.sm,
   },
@@ -1350,7 +1350,7 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     gap: spacing.lg,
   },
@@ -1384,7 +1384,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: "#fafafa",
   },
   pinActionActive: {
@@ -1518,7 +1518,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: "#fbfbfb",
   },
   reactionButtonLiked: {
@@ -1631,7 +1631,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   categoryChipTextSelected: {
-    color: colors.onPrimary,
+    color: colors.primaryText,
   },
   multilineInput: {
     minHeight: 88,
@@ -1658,7 +1658,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.borderSoft,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     gap: spacing.md,
     shadowColor: "#000",
@@ -1716,7 +1716,7 @@ const styles = StyleSheet.create({
   },
   selectionCreateButtonText: {
     ...typography.button,
-    color: colors.onPrimary,
+    color: colors.primaryText,
   },
   error: { color: "tomato" },
 });

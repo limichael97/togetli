@@ -18,6 +18,7 @@ import {
 } from "../../../lib/polls";
 import { supabase } from "../../../supabaseClient";
 import { getTripTypeLabel } from "../../../lib/trips";
+import { colors, radius } from "../../../lib/theme";
 
 function formatTripSubtitle(t: TripRow) {
   const statusLabel =
@@ -66,7 +67,7 @@ function PollSummaryRow({
           </View>
         ) : null}
       </View>
-      <Text style={styles.pollSummaryValue}>{count}/{total} responded</Text>
+      <Text style={styles.pollSummaryValue}>{count}/{total} voted</Text>
     </View>
   );
 }
@@ -119,7 +120,7 @@ export default function TripsListScreen() {
       const [memberRowsResult, responseDetails] = await Promise.all([
         supabase
           .from("trip_members")
-          .select("trip_id")
+          .select("trip_id, role, user_id")
           .in("trip_id", tripIds)
           .eq("is_active", true),
         listPollResponseDetailsForTrips(tripIds),
@@ -128,9 +129,18 @@ export default function TripsListScreen() {
       if (memberRowsResult.error) throw memberRowsResult.error;
 
       const nextMemberCountByTrip: Record<string, number> = {};
+      const eligibleVotingUserIdsByTrip: Record<string, Set<string>> = {};
       for (const row of memberRowsResult.data ?? []) {
+        if (row.role === "creator") continue;
         nextMemberCountByTrip[row.trip_id] =
           (nextMemberCountByTrip[row.trip_id] ?? 0) + 1;
+      }
+      for (const row of memberRowsResult.data ?? []) {
+        if (row.role === "creator") continue;
+        if (!eligibleVotingUserIdsByTrip[row.trip_id]) {
+          eligibleVotingUserIdsByTrip[row.trip_id] = new Set();
+        }
+        eligibleVotingUserIdsByTrip[row.trip_id].add(row.user_id);
       }
 
       const nextAvailabilityCounts: Record<string, number> = {};
@@ -138,7 +148,12 @@ export default function TripsListScreen() {
       const nextHasAvailabilityResponseByTrip: Record<string, boolean> = {};
       const nextHasStayResponseByTrip: Record<string, boolean> = {};
       for (const response of responseDetails) {
-        if (hasAvailabilityPollResponse(response)) {
+        const eligibleVotingUserIds =
+          eligibleVotingUserIdsByTrip[response.trip_id] ?? new Set<string>();
+        if (
+          hasAvailabilityPollResponse(response) &&
+          eligibleVotingUserIds.has(response.user_id)
+        ) {
           nextAvailabilityCounts[response.trip_id] =
             (nextAvailabilityCounts[response.trip_id] ?? 0) + 1;
           if (response.user_id === userId) {
@@ -270,7 +285,7 @@ export default function TripsListScreen() {
                 <Text style={styles.pollSummaryTitle}>Active Polls</Text>
                 {showAvailabilityPoll ? (
                   <PollSummaryRow
-                    label="Availability Poll"
+                    label="Date Poll"
                     count={availabilityCount}
                     total={memberCount}
                     needsVote={needsAvailabilityVote}
@@ -303,52 +318,67 @@ export default function TripsListScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#f7f7f7",
+    backgroundColor: colors.background,
   },
   contentContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 24,
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 28,
   },
   header: {
-    marginBottom: 16,
+    marginBottom: 18,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  title: { fontSize: 22, fontWeight: "700" },
-  newTrip: { fontSize: 16, color: "#555", fontWeight: "500" },
-  tripCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#e9e9e9",
-    padding: 16,
-    backgroundColor: "white",
-    gap: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+  title: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: colors.text,
+    letterSpacing: -0.3,
   },
-  tripName: { fontSize: 16, fontWeight: "600" },
-  tripDates: { marginTop: 4, fontSize: 14, color: "#666" },
+  newTrip: { fontSize: 15, color: colors.text, fontWeight: "700" },
+  tripCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 18,
+    backgroundColor: colors.surface,
+    gap: 11,
+    shadowColor: colors.text,
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+  tripName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.text,
+    letterSpacing: -0.1,
+  },
+  tripDates: {
+    marginTop: 2,
+    fontSize: 14,
+    color: colors.textMuted,
+    fontWeight: "600",
+  },
   tripDateStatus: {
     fontSize: 13,
-    color: "#7a7a7a",
-    marginTop: -2,
+    color: colors.textSubtle,
+    marginTop: -4,
   },
   pollSummaryCard: {
-    marginTop: 4,
-    paddingTop: 10,
+    marginTop: 2,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#f1f1f1",
-    gap: 6,
+    borderTopColor: colors.border,
+    gap: 8,
   },
   pollSummaryTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#6b7280",
+    color: colors.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
@@ -368,58 +398,62 @@ const styles = StyleSheet.create({
   pollSummaryLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111",
+    color: colors.text,
   },
   pollSummaryValue: {
     fontSize: 13,
-    color: "#666",
+    color: colors.textMuted,
   },
   needsVoteBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: "#fef3c7",
+    backgroundColor: colors.accentSoft,
   },
   needsVoteBadgeText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#92400e",
+    color: colors.text,
   },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   emptyTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111",
+    color: colors.text,
     textAlign: "center",
+    letterSpacing: -0.2,
   },
   emptySubtitle: {
     marginTop: 8,
     fontSize: 15,
     lineHeight: 22,
-    color: "#666",
+    color: colors.textMuted,
     textAlign: "center",
     maxWidth: 280,
   },
-  empty: { color: "#666" },
+  empty: { color: colors.textMuted },
   emptyButton: {
-    marginTop: 20,
-    backgroundColor: "#111",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 999,
+    marginTop: 22,
+    minHeight: 48,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 22,
+    paddingVertical: 13,
+    borderRadius: radius.pill,
+    justifyContent: "center",
   },
   emptyButtonText: {
-    color: "white",
+    color: colors.primaryText,
     fontSize: 15,
     fontWeight: "700",
   },
-  error: { color: "tomato", marginBottom: 10 },
+  error: { color: colors.danger, marginBottom: 10 },
   retryBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: "#eee",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   retryText: { fontWeight: "600" },
 });

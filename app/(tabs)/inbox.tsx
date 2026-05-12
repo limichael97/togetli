@@ -1,10 +1,13 @@
 import { View, Text, StyleSheet } from "react-native";
+import { colors, radius } from "../../lib/theme";
 
 export default function InboxScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.body}>Updates and messages will show up here.</Text>
+        <View style={styles.emptyCard}>
+          <Text style={styles.body}>Updates and messages will show up here.</Text>
+        </View>
       </View>
     </View>
   );
@@ -13,16 +16,23 @@ export default function InboxScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f7f7f7",
+    backgroundColor: colors.background,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 22,
     paddingTop: 24,
+  },
+  emptyCard: {
+    padding: 18,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   body: {
     fontSize: 15,
     lineHeight: 21,
-    color: "#666",
+    color: colors.textMuted,
   },
 });

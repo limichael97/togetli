@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import { ensureProfileIdentity } from "../../lib/profile";
+import { colors, radius } from "../../lib/theme";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -172,110 +173,148 @@ export default function SignInScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Welcome to Togetli</Text>
-      <Text style={styles.valueLine}>
-        Plan trips with your group, without the chaos.
-      </Text>
-      <Text style={styles.subtitle}>
-        {mode === "sign-in"
-          ? "Sign in with your email and password."
-          : "Create an account with your email and password."}
-      </Text>
-
-      <Text style={styles.label}>Email</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="you@example.com"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={email}
-        onChangeText={setEmail}
-        editable={!loading}
-      />
-
-      <Text style={styles.label}>Password</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Password (min 8 characters)"
-        secureTextEntry
-        autoCapitalize="none"
-        value={password}
-        onChangeText={setPassword}
-        editable={!loading}
-      />
-
-      <Pressable
-        style={[styles.googleButton, googleLoading && styles.buttonDisabled]}
-        onPress={continueWithGoogle}
-        disabled={loading || googleLoading}
-      >
-        <Text style={styles.googleButtonText}>
-          {googleLoading ? "Opening Google..." : "Continue with Google"}
+      <View style={styles.header}>
+        <Text style={styles.title}>Welcome to Togetli</Text>
+        <Text style={styles.valueLine}>
+          Plan trips with your group, without the chaos.
         </Text>
-      </Pressable>
-
-      <Pressable
-        style={[styles.button, loading && styles.buttonDisabled]}
-        onPress={submit}
-        disabled={loading || googleLoading}
-      >
-        <Text style={styles.buttonText}>
-          {loading ? "Working..." : mode === "sign-in" ? "Sign in" : "Create account"}
-        </Text>
-      </Pressable>
-
-      <Pressable
-        style={styles.linkButton}
-        onPress={() => setMode(mode === "sign-in" ? "sign-up" : "sign-in")}
-        disabled={loading}
-      >
-        <Text style={styles.linkText}>
+        <Text style={styles.subtitle}>
           {mode === "sign-in"
-            ? "Need an account? Create one"
-            : "Already have an account? Sign in"}
+            ? "Sign in with your email and password."
+            : "Create an account with your email and password."}
         </Text>
-      </Pressable>
+      </View>
+
+      <View style={styles.formCard}>
+        <Text style={styles.label}>Email</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="you@example.com"
+          placeholderTextColor={colors.textSubtle}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          value={email}
+          onChangeText={setEmail}
+          editable={!loading}
+        />
+
+        <Text style={styles.label}>Password</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Password (min 8 characters)"
+          placeholderTextColor={colors.textSubtle}
+          secureTextEntry
+          autoCapitalize="none"
+          value={password}
+          onChangeText={setPassword}
+          editable={!loading}
+        />
+
+        <Pressable
+          style={[styles.googleButton, googleLoading && styles.buttonDisabled]}
+          onPress={continueWithGoogle}
+          disabled={loading || googleLoading}
+        >
+          <Text style={styles.googleButtonText}>
+            {googleLoading ? "Opening Google..." : "Continue with Google"}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.button, loading && styles.buttonDisabled]}
+          onPress={submit}
+          disabled={loading || googleLoading}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? "Working..." : mode === "sign-in" ? "Sign in" : "Create account"}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.linkButton}
+          onPress={() => setMode(mode === "sign-in" ? "sign-up" : "sign-in")}
+          disabled={loading}
+        >
+          <Text style={styles.linkText}>
+            {mode === "sign-in"
+              ? "Need an account? Create one"
+              : "Already have an account? Sign in"}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 24, paddingTop: 80 },
-  title: { fontSize: 26, fontWeight: "700", marginBottom: 8 },
-  valueLine: { fontSize: 16, color: "#111", marginBottom: 8 },
-  subtitle: { fontSize: 15, color: "#555", marginBottom: 32 },
-  label: { fontSize: 14, fontWeight: "500", marginBottom: 6 },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingHorizontal: 22,
+    paddingTop: 78,
+  },
+  header: {
+    marginBottom: 26,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: colors.text,
+    letterSpacing: -0.4,
+    marginBottom: 10,
+  },
+  valueLine: { fontSize: 17, color: colors.text, marginBottom: 8, lineHeight: 24 },
+  subtitle: { fontSize: 15, color: colors.textMuted, lineHeight: 21 },
+  formCard: {
+    padding: 18,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    shadowColor: colors.text,
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  label: { fontSize: 13, fontWeight: "700", color: colors.text, marginBottom: 7 },
   input: {
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     marginBottom: 16,
     fontSize: 16,
+    color: colors.text,
   },
   googleButton: {
-    backgroundColor: "black",
+    minHeight: 52,
+    backgroundColor: colors.primary,
     paddingVertical: 14,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     marginTop: 8,
+    justifyContent: "center",
   },
   googleButtonText: {
-    color: "white",
+    color: colors.primaryText,
     textAlign: "center",
-    fontWeight: "600",
+    fontWeight: "700",
     fontSize: 16,
   },
   button: {
     borderWidth: 1,
-    borderColor: "#ddd",
-    backgroundColor: "white",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    minHeight: 52,
     paddingVertical: 14,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     marginTop: 12,
+    justifyContent: "center",
   },
-  buttonText: { color: "#111", textAlign: "center", fontWeight: "600", fontSize: 16 },
-  buttonDisabled: { opacity: 0.7 },
-  linkButton: { paddingVertical: 12 },
-  linkText: { color: "#111", textAlign: "center", fontWeight: "500" },
+  buttonText: { color: colors.text, textAlign: "center", fontWeight: "700", fontSize: 16 },
+  buttonDisabled: { opacity: 0.55 },
+  linkButton: { paddingVertical: 14, marginTop: 2 },
+  linkText: { color: colors.text, textAlign: "center", fontWeight: "600" },
 });

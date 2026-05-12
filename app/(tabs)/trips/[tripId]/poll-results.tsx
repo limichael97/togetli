@@ -16,7 +16,6 @@ import {
   finalizeStayPollWinner,
   getTripSetupData,
   listPollResponseDetails,
-  listPollResponses,
   parseStayPollDefinition,
   parseStayPollRankings,
   type PollResponseDetailRow,
@@ -88,6 +87,15 @@ function getPlacementLabel(index: number) {
   return `#${index + 1}`;
 }
 
+function formatDateRange(option: {
+  start_date: string;
+  end_date: string;
+  label: string | null;
+}) {
+  const range = `${option.start_date} → ${option.end_date}`;
+  return option.label ? `${option.label}: ${range}` : range;
+}
+
 export default function TripPollResultsScreen() {
   const params = useLocalSearchParams();
   const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
@@ -102,8 +110,11 @@ export default function TripPollResultsScreen() {
     { id: string; start_date: string; end_date: string; label: string | null }[]
   >([]);
   const [responses, setResponses] = useState<
-    { available_date_option_ids: string[] | null; flight_budget_label: string | null; lodging_budget_label: string | null }[]
+    { user_id?: string; available_date_option_ids: string[] | null }[]
   >([]);
+  const [eligibleVoterUserIds, setEligibleVoterUserIds] = useState<Set<string>>(
+    new Set()
+  );
   const [stayPollDefinition, setStayPollDefinition] = useState<StayPollDefinition | null>(
     null
   );
@@ -129,19 +140,24 @@ export default function TripPollResultsScreen() {
           member?.role === "creator" || member?.role === "planner"
         );
         setMemberCount(res.members.length);
+        setEligibleVoterUserIds(
+          new Set(
+            res.members
+              .filter((tripMember) => tripMember.role !== "creator")
+              .map((tripMember) => tripMember.user_id)
+          )
+        );
         setDateOptions(res.dateOptions);
         const stayDefinition = parseStayPollDefinition(
           res.trip.custom_poll_questions
         );
         setStayPollDefinition(stayDefinition);
 
-        const pollRows = await listPollResponses(tripId);
+        const detailRows = await listPollResponseDetails(tripId);
         if (!mounted) return;
-        setResponses(pollRows);
+        setResponses(detailRows);
 
         if (stayDefinition) {
-          const detailRows = await listPollResponseDetails(tripId);
-          if (!mounted) return;
           setResponseDetails(detailRows);
         } else {
           setResponseDetails([]);
@@ -158,45 +174,62 @@ export default function TripPollResultsScreen() {
     };
   }, [tripId, userId]);
 
-  const { dateCounts, topDateId, flightCounts, lodgingCounts } = useMemo(() => {
+  const { dateCounts, topDateIds, topDateCount, dateVoterCount } = useMemo(() => {
     const dateMap = new Map<string, number>();
-    const flightMap = new Map<string, number>();
-    const lodgingMap = new Map<string, number>();
+    const voterSet = new Set<string>();
 
     responses.forEach((r) => {
-      (r.available_date_option_ids ?? []).forEach((id) => {
+      if (!r.user_id || !eligibleVoterUserIds.has(r.user_id)) return;
+      const selectedIds = r.available_date_option_ids ?? [];
+      if (selectedIds.length > 0) {
+        voterSet.add(r.user_id);
+      }
+      selectedIds.forEach((id) => {
         dateMap.set(id, (dateMap.get(id) ?? 0) + 1);
       });
-      if (r.flight_budget_label) {
-        flightMap.set(
-          r.flight_budget_label,
-          (flightMap.get(r.flight_budget_label) ?? 0) + 1
-        );
-      }
-      if (r.lodging_budget_label) {
-        lodgingMap.set(
-          r.lodging_budget_label,
-          (lodgingMap.get(r.lodging_budget_label) ?? 0) + 1
-        );
-      }
     });
 
-    let topId: string | null = null;
     let topCount = 0;
     for (const [id, count] of dateMap.entries()) {
       if (count > topCount) {
         topCount = count;
-        topId = id;
       }
     }
 
     return {
       dateCounts: dateMap,
-      topDateId: topId,
-      flightCounts: flightMap,
-      lodgingCounts: lodgingMap,
+      topDateIds:
+        topCount > 0
+          ? Array.from(dateMap.entries())
+              .filter(([, count]) => count === topCount)
+              .map(([id]) => id)
+          : [],
+      topDateCount: topCount,
+      dateVoterCount: voterSet.size,
     };
-  }, [responses]);
+  }, [eligibleVoterUserIds, responses]);
+
+  const dateResults = useMemo(() => {
+    const voterCount = eligibleVoterUserIds.size;
+    return dateOptions
+      .map((option) => {
+        const count = dateCounts.get(option.id) ?? 0;
+        return {
+          option,
+          count,
+          percentage:
+            voterCount > 0 ? Math.round((count / voterCount) * 100) : 0,
+          isLeading: topDateIds.includes(option.id),
+        };
+      })
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.option.start_date.localeCompare(b.option.start_date);
+      });
+  }, [dateCounts, dateOptions, eligibleVoterUserIds, topDateIds]);
+  const leadingDateResults = dateResults.filter((result) => result.isLeading);
+  const hasDateTie = leadingDateResults.length > 1;
+  const dateWaitingCount = Math.max(eligibleVoterUserIds.size - dateVoterCount, 0);
 
   const stayResults = useMemo(() => {
     if (!stayPollDefinition) return [];
@@ -725,50 +758,109 @@ export default function TripPollResultsScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Poll Results</Text>
+      <View style={styles.pageHeader}>
+        <Text style={styles.title}>Date Poll Results</Text>
+        <Text style={styles.pageBody}>
+          See which dates work best for the group.
+        </Text>
+      </View>
 
-      <Text style={styles.sectionTitle}>Date options</Text>
-      {dateOptions.length === 0 ? (
+      {leadingDateResults.length > 0 ? (
+        <View style={styles.dateLeaderCard}>
+          <Text style={styles.dateLeaderEyebrow}>
+            {hasDateTie ? "Tie" : "Leading Date"}
+          </Text>
+          <Text style={styles.dateLeaderTitle}>
+            {leadingDateResults
+              .map((result) => formatDateRange(result.option))
+              .join("\n")}
+          </Text>
+          <Text style={styles.dateLeaderBody}>
+            {topDateCount} vote{topDateCount === 1 ? "" : "s"}
+            {hasDateTie ? " each" : ""}
+          </Text>
+          <Text style={styles.dateLeaderHelper}>
+            {hasDateTie
+              ? "The group is split between these dates."
+              : "Current best option based on votes."}
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.dateLeaderCard}>
+          <Text style={styles.dateLeaderEyebrow}>No votes yet</Text>
+          <Text style={styles.dateLeaderTitle}>Waiting for votes</Text>
+          <Text style={styles.dateLeaderHelper}>
+            Waiting for the group to vote.
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.dateParticipationCard}>
+        <View style={styles.dateParticipationHeader}>
+          <Text style={styles.dateParticipationTitle}>
+            {dateVoterCount} of {eligibleVoterUserIds.size} voted
+          </Text>
+          <Text style={styles.dateWaitingPill}>
+            {dateWaitingCount} waiting
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.resultsHeader}>
+        <Text style={styles.resultsTitle}>Date Options</Text>
+        <Text style={styles.resultsSubtitle}>
+          Vote share is based on eligible voters.
+        </Text>
+      </View>
+
+      {dateResults.length === 0 ? (
         <Text style={styles.muted}>No date options yet.</Text>
       ) : (
-        dateOptions.map((d) => {
-          const count = dateCounts.get(d.id) ?? 0;
-          const isTop = topDateId && d.id === topDateId;
-          return (
-            <View key={d.id} style={styles.row}>
-              <Text style={[styles.rowText, isTop ? styles.rowTextHighlight : null]}>
-                {d.label ? `${d.label}: ` : ""}{d.start_date} → {d.end_date}
-              </Text>
-              <Text style={[styles.countText, isTop ? styles.countTextHighlight : null]}>
-                {count}
-              </Text>
+        <View style={styles.dateResultsList}>
+          {dateResults.map((result) => (
+            <View
+              key={result.option.id}
+              style={[
+                styles.dateResultCard,
+                result.isLeading ? styles.dateResultCardLeading : null,
+              ]}
+            >
+              <View style={styles.dateResultTopRow}>
+                <View style={styles.dateResultTextBlock}>
+                  <Text
+                    style={[
+                      styles.dateResultTitle,
+                      result.isLeading ? styles.dateResultTitleLeading : null,
+                    ]}
+                  >
+                    {formatDateRange(result.option)}
+                  </Text>
+                  {result.isLeading ? (
+                    <Text style={styles.dateResultHint}>
+                      {hasDateTie ? "Tied leader" : "Current leader"}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={styles.dateResultStatBlock}>
+                  <Text style={styles.dateResultCount}>
+                    {result.count} vote{result.count === 1 ? "" : "s"}
+                  </Text>
+                  <Text style={styles.dateResultPercent}>
+                    {result.percentage}% of voters
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.dateProgressTrack}>
+                <View
+                  style={[
+                    styles.dateProgressFill,
+                    { width: `${result.percentage}%` },
+                  ]}
+                />
+              </View>
             </View>
-          );
-        })
-      )}
-
-      <Text style={styles.sectionTitle}>Flight budget</Text>
-      {flightCounts.size === 0 ? (
-        <Text style={styles.muted}>No selections yet.</Text>
-      ) : (
-        Array.from(flightCounts.entries()).map(([label, count]) => (
-          <View key={`flight-${label}`} style={styles.row}>
-            <Text style={styles.rowText}>{label}</Text>
-            <Text style={styles.countText}>{count}</Text>
-          </View>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>Lodging budget</Text>
-      {lodgingCounts.size === 0 ? (
-        <Text style={styles.muted}>No selections yet.</Text>
-      ) : (
-        Array.from(lodgingCounts.entries()).map(([label, count]) => (
-          <View key={`lodging-${label}`} style={styles.row}>
-            <Text style={styles.rowText}>{label}</Text>
-            <Text style={styles.countText}>{count}</Text>
-          </View>
-        ))
+          ))}
+        </View>
       )}
     </ScrollView>
   );
@@ -797,6 +889,129 @@ const styles = StyleSheet.create({
   pageBody: {
     ...typography.bodyMuted,
     lineHeight: 20,
+  },
+  dateLeaderCard: {
+    padding: spacing.xl,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.primaryMuted,
+    backgroundColor: colors.primarySoft,
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  dateLeaderEyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  dateLeaderTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: colors.ink,
+    lineHeight: 28,
+  },
+  dateLeaderBody: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.inkSoft,
+  },
+  dateLeaderHelper: {
+    ...typography.bodyMuted,
+    lineHeight: 20,
+  },
+  dateParticipationCard: {
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    marginBottom: spacing.lg,
+  },
+  dateParticipationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  dateParticipationTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  dateWaitingPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceMuted,
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  dateResultsList: {
+    gap: spacing.sm,
+  },
+  dateResultCard: {
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: spacing.md,
+  },
+  dateResultCardLeading: {
+    borderColor: colors.primaryMuted,
+    backgroundColor: "#fffaf1",
+  },
+  dateResultTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  dateResultTextBlock: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  dateResultTitle: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  dateResultTitleLeading: {
+    fontWeight: "700",
+  },
+  dateResultHint: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  dateResultStatBlock: {
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  dateResultCount: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "right",
+  },
+  dateResultPercent: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  dateProgressTrack: {
+    height: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceMuted,
+    overflow: "hidden",
+  },
+  dateProgressFill: {
+    height: "100%",
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
   },
   helperText: { color: colors.textMuted, marginBottom: spacing.lg },
   participationCard: {
@@ -925,7 +1140,7 @@ const styles = StyleSheet.create({
   },
   finalizeButtonPressed: { opacity: 0.84 },
   finalizeButtonDisabled: { opacity: 0.5 },
-  finalizeButtonText: { color: colors.onPrimary, fontWeight: "700" },
+  finalizeButtonText: { color: colors.primaryText, fontWeight: "700" },
   resultsHeader: {
     gap: 2,
     marginBottom: spacing.md,

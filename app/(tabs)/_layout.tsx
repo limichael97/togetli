@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Tabs } from "expo-router";
+import { colors } from "../../lib/theme";
 
 export default function TabsLayout() {
   return (
@@ -9,11 +10,28 @@ export default function TabsLayout() {
         headerShown: false,
         headerTitleAlign: "center",
         headerShadowVisible: false,
-        tabBarActiveTintColor: "#111",
-        tabBarInactiveTintColor: "#8a8a8a",
+        headerStyle: {
+          backgroundColor: colors.background,
+        },
+        headerTitleStyle: {
+          fontSize: 17,
+          fontWeight: "700",
+          color: colors.text,
+        },
+        tabBarActiveTintColor: colors.text,
+        tabBarInactiveTintColor: colors.textSubtle,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "600",
+          marginTop: 2,
+        },
         tabBarStyle: {
-          backgroundColor: "#fff",
-          borderTopColor: "#ececec",
+          height: 84,
+          paddingTop: 8,
+          paddingBottom: 18,
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          borderTopWidth: 1,
         },
       }}
     >
@@ -22,7 +40,7 @@ export default function TabsLayout() {
         options={{
           title: "Trips",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="airplane-outline" size={size} color={color} />
+            <Ionicons name="airplane-outline" size={size - 1} color={color} />
           ),
         }}
       />
@@ -32,7 +50,7 @@ export default function TabsLayout() {
           title: "Inbox",
           headerShown: true,
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="mail-outline" size={size} color={color} />
+            <Ionicons name="mail-outline" size={size - 1} color={color} />
           ),
         }}
       />
@@ -42,7 +60,7 @@ export default function TabsLayout() {
           title: "Profile",
           headerShown: true,
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
+            <Ionicons name="person-outline" size={size - 1} color={color} />
           ),
         }}
       />
