@@ -22,6 +22,7 @@ import {
 } from "../../../../lib/trips";
 import { useAuthStore } from "../../../../store/useAuthStore";
 import { colors, radius, spacing, typography } from "../../../../lib/theme";
+import { formatDateRangeLabel } from "../../../../lib/dateFormatting";
 
 type DateResult = {
   option: TripDateOptionRow;
@@ -31,8 +32,16 @@ type DateResult = {
 };
 
 function formatDateRange(option: TripDateOptionRow) {
-  const range = `${option.start_date} → ${option.end_date}`;
-  return option.label ? `${option.label}: ${range}` : range;
+  return formatDateRangeLabel(option.start_date, option.end_date);
+}
+
+function getInitials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase())
+    .join("");
 }
 
 export default function DatePollResultsScreen() {
@@ -233,6 +242,14 @@ export default function DatePollResultsScreen() {
           <Text style={styles.leaderTitle}>
             {leadingResults.map((result) => formatDateRange(result.option)).join("\n")}
           </Text>
+          {leadingResults.some((result) => !!result.option.label) ? (
+            <Text style={styles.leaderLabelText}>
+              {leadingResults
+                .map((result) => result.option.label)
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
+          ) : null}
           <Text style={styles.leaderBody}>
             {leadingResult.count} vote{leadingResult.count === 1 ? "" : "s"}
             {hasLeadingTie ? " each" : ""}
@@ -289,10 +306,15 @@ export default function DatePollResultsScreen() {
             >
               <View style={styles.resultTopRow}>
                 <View style={styles.resultTextBlock}>
+                  {result.option.label ? (
+                    <Text style={styles.resultOptionLabel}>
+                      {result.option.label}
+                    </Text>
+                  ) : null}
                   <Text
                     style={[
-                      styles.resultLabel,
-                      result.isLeading ? styles.resultLabelLeading : null,
+                      styles.resultDateRange,
+                      result.isLeading ? styles.resultDateRangeLeading : null,
                     ]}
                   >
                     {formatDateRange(result.option)}
@@ -341,15 +363,34 @@ export default function DatePollResultsScreen() {
               {waitingCount} waiting
             </Text>
           </View>
+          <View style={styles.divider} />
+          <Text style={styles.listLabel}>Voted</Text>
+          {voterNames.length > 0 ? (
+            <View style={styles.memberList}>
+              {voterNames.map((name, index) => (
+                <View key={`voted-${name}-${index}`} style={styles.memberRow}>
+                  <View style={styles.memberAvatar}>
+                    <Text style={styles.memberAvatarText}>{getInitials(name)}</Text>
+                  </View>
+                  <Text style={styles.memberName}>{name}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.muted}>No one has voted yet.</Text>
+          )}
           {waitingNames.length > 0 ? (
             <>
               <View style={styles.divider} />
               <Text style={styles.listLabel}>Waiting on</Text>
-              <View style={styles.memberPillRow}>
-                {waitingNames.map((name) => (
-                  <Text key={`waiting-${name}`} style={styles.memberPill}>
-                    {name}
-                  </Text>
+              <View style={styles.memberList}>
+                {waitingNames.map((name, index) => (
+                  <View key={`waiting-${name}-${index}`} style={styles.memberRow}>
+                    <View style={styles.memberAvatar}>
+                      <Text style={styles.memberAvatarText}>{getInitials(name)}</Text>
+                    </View>
+                    <Text style={styles.memberName}>{name}</Text>
+                  </View>
                 ))}
               </View>
             </>
@@ -410,6 +451,11 @@ const styles = StyleSheet.create({
   leaderBody: {
     color: colors.inkSoft,
     fontSize: 15,
+    fontWeight: "700",
+  },
+  leaderLabelText: {
+    color: colors.textMuted,
+    fontSize: 13,
     fontWeight: "700",
   },
   leaderHelper: {
@@ -481,12 +527,19 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
-  resultLabel: {
+  resultOptionLabel: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  resultDateRange: {
     color: colors.text,
     fontSize: 15,
     lineHeight: 20,
   },
-  resultLabelLeading: {
+  resultDateRangeLeading: {
     fontWeight: "700",
   },
   resultHint: {
@@ -549,18 +602,30 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  memberPillRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  memberList: {
     gap: spacing.xs,
   },
-  memberPill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
+  memberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  memberAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: colors.primarySoft,
+  },
+  memberAvatarText: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  memberName: {
     color: colors.inkSoft,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "600",
   },
   muted: {

@@ -1,7 +1,13 @@
 // lib/polls.ts
 import { supabase } from "../supabaseClient";
 import type { Database } from "../types/database.types";
-import type { TripBudgetOptionRow, TripDateOptionRow, TripMemberRow, TripRow } from "./trips";
+import {
+  attachTripMemberProfiles,
+  type TripBudgetOptionRow,
+  type TripDateOptionRow,
+  type TripMemberRow,
+  type TripRow,
+} from "./trips";
 
 export type TripBudgetOptionInput = {
   type: "flight" | "lodging";
@@ -165,11 +171,14 @@ export async function getTripSetupData(tripId: string): Promise<{
 
   const { data: members, error: memError } = await supabase
     .from("trip_members")
-    .select("user_id, role, is_active, created_at")
+    .select("user_id, role, is_active, created_at, invited_email, invited_name")
     .eq("trip_id", tripId)
     .eq("is_active", true)
     .order("created_at", { ascending: true });
   if (memError) throw memError;
+  const membersWithProfiles = await attachTripMemberProfiles(
+    (members ?? []) as TripMemberRow[]
+  );
 
   const { data: dateOptions, error: dateError } = await supabase
     .from("trip_date_options")
@@ -187,7 +196,7 @@ export async function getTripSetupData(tripId: string): Promise<{
 
   return {
     trip: trip as TripSetupTripRow,
-    members: (members ?? []) as TripMemberRow[],
+    members: membersWithProfiles,
     dateOptions: (dateOptions ?? []) as TripDateOptionRow[],
     budgetOptions: (budgetOptions ?? []) as TripBudgetOptionRow[],
   };

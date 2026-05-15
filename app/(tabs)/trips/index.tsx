@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Text,
   StyleSheet,
@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   View,
 } from "react-native";
-import { Link, router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { listMyTrips, TripRow } from "../../../lib/trips";
 import { useAuthStore } from "../../../store/useAuthStore";
 import {
@@ -18,6 +18,7 @@ import {
 } from "../../../lib/polls";
 import { supabase } from "../../../supabaseClient";
 import { getTripTypeLabel } from "../../../lib/trips";
+import { useProfile } from "../../../lib/useProfile";
 import { colors, radius } from "../../../lib/theme";
 
 function formatTripSubtitle(t: TripRow) {
@@ -44,6 +45,10 @@ function formatTripDateStatus(t: TripRow) {
   return hasFinalDates
     ? `${formatDate(t.final_start_date!)} → ${formatDate(t.final_end_date!)}`
     : "Dates not finalized yet";
+}
+
+function getFirstName(value: string | null | undefined) {
+  return value?.trim().split(/\s+/)[0] || null;
 }
 
 function PollSummaryRow({
@@ -75,6 +80,7 @@ function PollSummaryRow({
 export default function TripsListScreen() {
   const userId = useAuthStore((s) => s.userId);
   const authLoading = useAuthStore((s) => s.loading);
+  const { profile } = useProfile();
 
   const [trips, setTrips] = useState<TripRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,6 +197,9 @@ export default function TripsListScreen() {
     }, [authLoading, load])
   );
 
+  const profileName = profile?.display_name?.trim() || profile?.full_name?.trim() || null;
+  const firstName = useMemo(() => getFirstName(profileName), [profileName]);
+
   // If auth is still initializing, show spinner
   if (authLoading) {
     return (
@@ -216,12 +225,12 @@ export default function TripsListScreen() {
       keyExtractor={(item) => item.id}
       ListHeaderComponent={
         <View style={styles.header}>
-          <Text style={styles.title}>Your Trips</Text>
-          <Link href="/(tabs)/trips/new" asChild>
-            <Pressable>
-              <Text style={styles.newTrip}>+ New Trip</Text>
-            </Pressable>
-          </Link>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.title}>
+              {firstName ? `Hello, ${firstName} 👋` : "Hello 👋"}
+            </Text>
+            <Text style={styles.subtitle}>Ready to plan the next trip?</Text>
+          </View>
         </View>
       }
       ListEmptyComponent={
@@ -243,7 +252,7 @@ export default function TripsListScreen() {
               Start planning your first trip with friends.
             </Text>
             <Pressable
-              onPress={() => router.push("/(tabs)/trips/new")}
+              onPress={() => router.push("/new-trip")}
               style={styles.emptyButton}
             >
               <Text style={styles.emptyButtonText}>Create Trip</Text>
@@ -326,18 +335,21 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   header: {
-    marginBottom: 18,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    marginBottom: 20,
+  },
+  headerTextBlock: {
+    gap: 4,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "700",
     color: colors.text,
     letterSpacing: -0.3,
   },
-  newTrip: { fontSize: 15, color: colors.text, fontWeight: "700" },
+  subtitle: {
+    fontSize: 14,
+    color: colors.textMuted,
+  },
   tripCard: {
     borderRadius: radius.lg,
     borderWidth: 1,

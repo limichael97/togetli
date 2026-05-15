@@ -4,9 +4,10 @@ import {
   useRootNavigationState,
   useSegments,
 } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import * as Linking from "expo-linking";
 import { supabase } from "../supabaseClient";
 import { useAuthStore } from "../store/useAuthStore";
@@ -44,6 +45,15 @@ function LoadingOverlay() {
       <ActivityIndicator />
     </View>
   );
+}
+
+function closeNewTripModal() {
+  if (router.canGoBack()) {
+    router.back();
+    return;
+  }
+
+  router.replace("/(tabs)/trips");
 }
 
 function AuthGate() {
@@ -218,6 +228,7 @@ function AuthGate() {
 
     const enforceGate = async () => {
       if (!rootNavigationState?.key || !targetHref || !targetRootSegment) return;
+      if (gateState === "app" && currentRootSegment === "new-trip") return;
       if (currentRootSegment === targetRootSegment) return;
 
       console.log("[AuthGate] route mismatch detected", {
@@ -297,7 +308,39 @@ export default function RootLayout() {
         screenOptions={{
           headerShown: false,
         }}
-      />
+      >
+        <Stack.Screen
+          name="new-trip"
+          options={{
+            title: "New Trip",
+            headerShown: true,
+            presentation: "modal",
+            animation: "slide_from_bottom",
+            headerShadowVisible: false,
+            headerStyle: {
+              backgroundColor: colors.background,
+            },
+            headerTitleStyle: {
+              fontSize: 17,
+              fontWeight: "700",
+              color: colors.text,
+            },
+            headerLeft: () => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close new trip"
+                onPress={closeNewTripModal}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed ? styles.closeButtonPressed : null,
+                ]}
+              >
+                <Ionicons name="close" size={22} color={colors.text} />
+              </Pressable>
+            ),
+          }}
+        />
+      </Stack>
       <AuthGate />
     </>
   );
@@ -309,5 +352,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.background,
+  },
+  closeButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceMuted,
+  },
+  closeButtonPressed: {
+    opacity: 0.72,
   },
 });

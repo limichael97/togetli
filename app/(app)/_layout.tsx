@@ -1,4 +1,32 @@
-import { Stack } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { Stack, router } from "expo-router";
+import { Pressable, StyleSheet } from "react-native";
+import { colors } from "../../lib/theme";
+
+function TripsBackButton() {
+  const handlePress = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace("/(tabs)/trips");
+  };
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Go back"
+      onPress={handlePress}
+      style={({ pressed }) => [
+        styles.tripsBackButton,
+        pressed ? styles.tripsBackButtonPressed : null,
+      ]}
+    >
+      <Ionicons name="chevron-back" size={21} color={colors.primary} />
+    </Pressable>
+  );
+}
 
 export default function AppLayout() {
   return (
@@ -9,11 +37,18 @@ export default function AppLayout() {
       }}
     >
       <Stack.Screen name="home" options={{ title: "Home" }} />
-      <Stack.Screen name="trips/index" options={{ title: "Trips" }} />
+      <Stack.Screen
+        name="trips/index"
+        options={{ title: "Trips", headerLeft: () => null }}
+      />
       <Stack.Screen name="trips/new" options={{ title: "New Trip" }} />
       <Stack.Screen
         name="trips/[tripId]"
-        options={{ title: "Trip", headerBackTitle: "Back" }}
+        options={{
+          title: "Trip",
+          headerBackTitle: "Back",
+          headerLeft: () => <TripsBackButton />,
+        }}
       />
       <Stack.Screen
         name="trips/[tripId]/members"
@@ -38,3 +73,15 @@ export default function AppLayout() {
     </Stack>
   );
 }
+
+const styles = StyleSheet.create({
+  tripsBackButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tripsBackButtonPressed: {
+    opacity: 0.65,
+  },
+});

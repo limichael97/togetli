@@ -12,6 +12,11 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams } from "expo-router";
 import { useAuthStore } from "../../../../store/useAuthStore";
 import { colors, radius, spacing, typography } from "../../../../lib/theme";
+import { formatDateRangeLabel } from "../../../../lib/dateFormatting";
+import {
+  getTripMemberDisplayName,
+  type TripMemberRow,
+} from "../../../../lib/trips";
 import {
   finalizeStayPollWinner,
   getTripSetupData,
@@ -92,8 +97,16 @@ function formatDateRange(option: {
   end_date: string;
   label: string | null;
 }) {
-  const range = `${option.start_date} → ${option.end_date}`;
-  return option.label ? `${option.label}: ${range}` : range;
+  return formatDateRangeLabel(option.start_date, option.end_date);
+}
+
+function getInitials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase())
+    .join("");
 }
 
 export default function TripPollResultsScreen() {
@@ -115,6 +128,7 @@ export default function TripPollResultsScreen() {
   const [eligibleVoterUserIds, setEligibleVoterUserIds] = useState<Set<string>>(
     new Set()
   );
+  const [eligibleVoters, setEligibleVoters] = useState<TripMemberRow[]>([]);
   const [stayPollDefinition, setStayPollDefinition] = useState<StayPollDefinition | null>(
     null
   );
@@ -140,12 +154,12 @@ export default function TripPollResultsScreen() {
           member?.role === "creator" || member?.role === "planner"
         );
         setMemberCount(res.members.length);
+        const eligibleMembers = res.members.filter(
+          (tripMember) => tripMember.role !== "creator"
+        );
+        setEligibleVoters(eligibleMembers);
         setEligibleVoterUserIds(
-          new Set(
-            res.members
-              .filter((tripMember) => tripMember.role !== "creator")
-              .map((tripMember) => tripMember.user_id)
-          )
+          new Set(eligibleMembers.map((tripMember) => tripMember.user_id))
         );
         setDateOptions(res.dateOptions);
         const stayDefinition = parseStayPollDefinition(
@@ -174,7 +188,7 @@ export default function TripPollResultsScreen() {
     };
   }, [tripId, userId]);
 
-  const { dateCounts, topDateIds, topDateCount, dateVoterCount } = useMemo(() => {
+  const { dateCounts, topDateIds, topDateCount, dateVoterCount, dateVoterUserIds } = useMemo(() => {
     const dateMap = new Map<string, number>();
     const voterSet = new Set<string>();
 
@@ -206,6 +220,7 @@ export default function TripPollResultsScreen() {
           : [],
       topDateCount: topCount,
       dateVoterCount: voterSet.size,
+      dateVoterUserIds: Array.from(voterSet),
     };
   }, [eligibleVoterUserIds, responses]);
 
@@ -230,6 +245,16 @@ export default function TripPollResultsScreen() {
   const leadingDateResults = dateResults.filter((result) => result.isLeading);
   const hasDateTie = leadingDateResults.length > 1;
   const dateWaitingCount = Math.max(eligibleVoterUserIds.size - dateVoterCount, 0);
+  const dateVoterUserIdSet = useMemo(
+    () => new Set(dateVoterUserIds),
+    [dateVoterUserIds]
+  );
+  const votedMemberNames = eligibleVoters
+    .filter((member) => dateVoterUserIdSet.has(member.user_id))
+    .map(getTripMemberDisplayName);
+  const waitingMemberNames = eligibleVoters
+    .filter((member) => !dateVoterUserIdSet.has(member.user_id))
+    .map(getTripMemberDisplayName);
 
   const stayResults = useMemo(() => {
     if (!stayPollDefinition) return [];
@@ -775,6 +800,14 @@ export default function TripPollResultsScreen() {
               .map((result) => formatDateRange(result.option))
               .join("\n")}
           </Text>
+          {leadingDateResults.some((result) => !!result.option.label) ? (
+            <Text style={styles.dateLeaderLabelText}>
+              {leadingDateResults
+                .map((result) => result.option.label)
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
+          ) : null}
           <Text style={styles.dateLeaderBody}>
             {topDateCount} vote{topDateCount === 1 ? "" : "s"}
             {hasDateTie ? " each" : ""}
@@ -794,17 +827,6 @@ export default function TripPollResultsScreen() {
           </Text>
         </View>
       )}
-
-      <View style={styles.dateParticipationCard}>
-        <View style={styles.dateParticipationHeader}>
-          <Text style={styles.dateParticipationTitle}>
-            {dateVoterCount} of {eligibleVoterUserIds.size} voted
-          </Text>
-          <Text style={styles.dateWaitingPill}>
-            {dateWaitingCount} waiting
-          </Text>
-        </View>
-      </View>
 
       <View style={styles.resultsHeader}>
         <Text style={styles.resultsTitle}>Date Options</Text>
@@ -827,10 +849,15 @@ export default function TripPollResultsScreen() {
             >
               <View style={styles.dateResultTopRow}>
                 <View style={styles.dateResultTextBlock}>
+                  {result.option.label ? (
+                    <Text style={styles.dateResultOptionLabel}>
+                      {result.option.label}
+                    </Text>
+                  ) : null}
                   <Text
                     style={[
-                      styles.dateResultTitle,
-                      result.isLeading ? styles.dateResultTitleLeading : null,
+                      styles.dateResultRange,
+                      result.isLeading ? styles.dateResultRangeLeading : null,
                     ]}
                   >
                     {formatDateRange(result.option)}
@@ -862,6 +889,49 @@ export default function TripPollResultsScreen() {
           ))}
         </View>
       )}
+
+      <View style={styles.dateParticipationCard}>
+        <View style={styles.dateParticipationHeader}>
+          <Text style={styles.dateParticipationTitle}>
+            {dateVoterCount} of {eligibleVoterUserIds.size} voted
+          </Text>
+          <Text style={styles.dateWaitingPill}>
+            {dateWaitingCount} waiting
+          </Text>
+        </View>
+        <View style={styles.dateParticipationDivider} />
+        <Text style={styles.dateParticipationListLabel}>Voted</Text>
+        {votedMemberNames.length > 0 ? (
+          <View style={styles.dateMemberList}>
+            {votedMemberNames.map((name, index) => (
+              <View key={`voted-${name}-${index}`} style={styles.dateMemberRow}>
+                <View style={styles.dateMemberAvatar}>
+                  <Text style={styles.dateMemberAvatarText}>{getInitials(name)}</Text>
+                </View>
+                <Text style={styles.dateMemberName}>{name}</Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.muted}>No one has voted yet.</Text>
+        )}
+        <View style={styles.dateParticipationDivider} />
+        <Text style={styles.dateParticipationListLabel}>Waiting on</Text>
+        {waitingMemberNames.length > 0 ? (
+          <View style={styles.dateMemberList}>
+            {waitingMemberNames.map((name, index) => (
+              <View key={`waiting-${name}-${index}`} style={styles.dateMemberRow}>
+                <View style={styles.dateMemberAvatar}>
+                  <Text style={styles.dateMemberAvatarText}>{getInitials(name)}</Text>
+                </View>
+                <Text style={styles.dateMemberName}>{name}</Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.muted}>No one pending.</Text>
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -917,6 +987,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.inkSoft,
   },
+  dateLeaderLabelText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
   dateLeaderHelper: {
     ...typography.bodyMuted,
     lineHeight: 20,
@@ -949,6 +1024,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
+  dateParticipationDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  dateParticipationListLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: spacing.xs,
+  },
+  dateMemberList: {
+    gap: spacing.xs,
+  },
+  dateMemberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  dateMemberAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceMuted,
+  },
+  dateMemberAvatarText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  dateMemberName: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   dateResultsList: {
     gap: spacing.sm,
   },
@@ -974,12 +1088,19 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.xs,
   },
-  dateResultTitle: {
+  dateResultOptionLabel: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  dateResultRange: {
     color: colors.text,
     fontSize: 15,
     lineHeight: 20,
   },
-  dateResultTitleLeading: {
+  dateResultRangeLeading: {
     fontWeight: "700",
   },
   dateResultHint: {

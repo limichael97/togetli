@@ -283,7 +283,7 @@ export function normalizeTripMemberRows(rows: RawTripMemberRow[] | null | undefi
   });
 }
 
-async function attachTripMemberProfiles(
+export async function attachTripMemberProfiles(
   members: TripMemberRow[]
 ): Promise<TripMemberRow[]> {
   const userIds = Array.from(
@@ -310,28 +310,17 @@ async function attachTripMemberProfiles(
 }
 
 export function getTripMemberDisplayName(member: TripMemberRow): string {
-  const fullName = member.profiles?.full_name?.trim();
-  if (fullName) return fullName;
-
   const displayName = member.profiles?.display_name?.trim();
   if (displayName) return displayName;
+
+  const fullName = member.profiles?.full_name?.trim();
+  if (fullName) return fullName;
 
   const invitedName = member.invited_name?.trim();
   if (invitedName) return invitedName;
 
-  const email =
-   member.invited_email?.trim() || null;
-  const emailLocalPart = email?.split("@")[0]?.trim();
-  if (emailLocalPart) return emailLocalPart;
-
-  const readableFallback =
-    member.role === "creator"
-      ? "Trip creator"
-      : member.role === "planner"
-        ? "Trip planner"
-        : "Trip member";
-
-  return `${readableFallback} (${member.user_id.slice(0, 6)})`;
+  if (member.role === "creator") return "Creator";
+  return "Group member";
 }
 
 export type TripDateOptionRow = {
