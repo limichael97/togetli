@@ -42,6 +42,7 @@ type StayResultRow = {
   firstPlaceVotes: number;
   secondPlaceVotes: number;
   thirdPlaceVotes: number;
+  rankedVotes: number;
   sourceIndex: number;
 };
 
@@ -233,12 +234,25 @@ export default function TripPollResultsScreen() {
         firstPlaceVotes: 0,
         secondPlaceVotes: 0,
         thirdPlaceVotes: 0,
+        rankedVotes: 0,
         sourceIndex: index,
       });
     });
 
     responseDetails.forEach((response) => {
       const rankings = parseStayPollRankings(response.custom_poll_answers);
+      const rankedOptionIds = new Set(
+        [
+          rankings.first_choice_note_id,
+          rankings.second_choice_note_id,
+          rankings.third_choice_note_id,
+        ].filter((id): id is string => !!id)
+      );
+
+      rankedOptionIds.forEach((optionId) => {
+        const target = resultMap.get(optionId);
+        if (target) target.rankedVotes += 1;
+      });
 
       if (rankings.first_choice_note_id) {
         const target = resultMap.get(rankings.first_choice_note_id);
@@ -289,16 +303,6 @@ export default function TripPollResultsScreen() {
     );
   }, [stayResults]);
 
-  const topTiedResults = useMemo(() => {
-    if (!topStayTie || stayResults.length === 0) return [];
-    const leader = stayResults[0];
-    return stayResults.filter(
-      (row) =>
-        row.totalPoints === leader.totalPoints &&
-        row.firstPlaceVotes === leader.firstPlaceVotes
-    );
-  }, [stayResults, topStayTie]);
-
   const finalizedWinner = useMemo(() => {
     if (!stayPollDefinition?.finalized_winner_note_id) return null;
     return (
@@ -340,8 +344,8 @@ export default function TripPollResultsScreen() {
     if (finalizingWinner) return;
 
     Alert.alert(
-      "Finalize winning stay?",
-      `Finalize ${computedWinner.option.title} as the winning stay option?`,
+      "Finalize stay?",
+      `Finalize ${computedWinner.option.title} as the selected stay option?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -364,8 +368,8 @@ export default function TripPollResultsScreen() {
                     : current
                 );
                 Alert.alert(
-                  "Winning stay finalized",
-                  `${computedWinner.option.title} is now marked as the winning stay.`
+                  "Stay finalized",
+                  `${computedWinner.option.title} is now marked as the selected stay.`
                 );
               } catch (e: any) {
                 Alert.alert(
@@ -456,73 +460,18 @@ export default function TripPollResultsScreen() {
   }
 
   if (showStayResults) {
-    const featuredStay = finalizedWinner ?? computedWinner;
-
     return (
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>Stay Poll</Text>
           <Text style={styles.title}>Results</Text>
           <Text style={styles.pageBody}>
-            See the winning stay and compact ranked results.
+            Compare the stay options the group ranked.
           </Text>
         </View>
 
         {stayResults.length === 0 ? (
           <Text style={styles.muted}>No stay options found.</Text>
-        ) : topStayTie ? (
-          <View style={[styles.heroCard, styles.heroCardTie]}>
-            <Text style={styles.heroEyebrow}>Tie</Text>
-            <Text style={styles.heroTitle}>Top stay options are tied</Text>
-            <Text style={styles.heroBody}>
-              {topTiedResults.map((row) => row.option.title).join(" and ")} are tied
-              on points and first-place votes.
-            </Text>
-            <View style={styles.heroMetaRow}>
-              <View style={styles.heroMetaPill}>
-                <Text style={styles.heroMetaPillText}>
-                  {topTiedResults[0]?.totalPoints ?? 0} points each
-                </Text>
-              </View>
-            </View>
-          </View>
-        ) : featuredStay ? (
-          <View
-            style={[
-              styles.heroCard,
-              finalizedWinner ? styles.heroCardFinalized : styles.heroCardWinner,
-            ]}
-          >
-            <Text style={styles.heroEyebrow}>
-              {finalizedWinner ? "Finalized Stay" : "Winner"}
-            </Text>
-            <Text style={styles.heroTitle}>{featuredStay.option.title}</Text>
-            <View style={styles.heroMetaRow}>
-              <View style={styles.heroMetaPill}>
-                <Text style={styles.heroMetaPillText}>
-                  {featuredStay.totalPoints} points
-                </Text>
-              </View>
-              <View style={styles.heroMetaPill}>
-                <Text style={styles.heroMetaPillText}>
-                  {featuredStay.firstPlaceVotes} first-place vote
-                  {featuredStay.firstPlaceVotes === 1 ? "" : "s"}
-                </Text>
-              </View>
-            </View>
-            {normalizeLink(featuredStay.option.link) ? (
-              <Pressable
-                onPress={() => handleOpenStayLink(featuredStay.option.link)}
-                style={({ pressed }) => [
-                  styles.linkActionButton,
-                  styles.heroActionButton,
-                  pressed ? styles.linkActionButtonPressed : null,
-                ]}
-              >
-                <Text style={styles.linkActionButtonText}>View Stay</Text>
-              </Pressable>
-            ) : null}
-          </View>
         ) : null}
 
         <View style={styles.participationCard}>
@@ -599,17 +548,18 @@ export default function TripPollResultsScreen() {
                     <View style={styles.resultBadgeRow}>
                       {isFinalizedWinner ? (
                         <View style={styles.finalizedBadge}>
-                          <Text style={styles.finalizedBadgeText}>Winner</Text>
+                          <Text style={styles.finalizedBadgeText}>Finalized</Text>
                         </View>
                       ) : null}
                     </View>
                     <Text style={styles.stayResultTitle}>{result.option.title}</Text>
                     <View style={styles.pointsRow}>
                       <Text style={styles.stayResultPoints}>
-                        {result.totalPoints} point{result.totalPoints === 1 ? "" : "s"}
+                        {result.firstPlaceVotes} first-place vote
+                        {result.firstPlaceVotes === 1 ? "" : "s"}
                       </Text>
                       <Text style={styles.stayResultPointsHint}>
-                        {result.firstPlaceVotes} first-place
+                        {result.rankedVotes} ranked
                       </Text>
                     </View>
                   </View>
@@ -641,44 +591,6 @@ export default function TripPollResultsScreen() {
           See which dates work best for the group.
         </Text>
       </View>
-
-      {leadingDateResults.length > 0 ? (
-        <View style={styles.dateLeaderCard}>
-          <Text style={styles.dateLeaderEyebrow}>
-            {hasDateTie ? "Tie" : "Leading Date"}
-          </Text>
-          <Text style={styles.dateLeaderTitle}>
-            {leadingDateResults
-              .map((result) => formatDateRange(result.option))
-              .join("\n")}
-          </Text>
-          {leadingDateResults.some((result) => !!result.option.label) ? (
-            <Text style={styles.dateLeaderLabelText}>
-              {leadingDateResults
-                .map((result) => result.option.label)
-                .filter(Boolean)
-                .join(" · ")}
-            </Text>
-          ) : null}
-          <Text style={styles.dateLeaderBody}>
-            {topDateCount} vote{topDateCount === 1 ? "" : "s"}
-            {hasDateTie ? " each" : ""}
-          </Text>
-          <Text style={styles.dateLeaderHelper}>
-            {hasDateTie
-              ? "The group is split between these dates."
-              : "Current best option based on votes."}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.dateLeaderCard}>
-          <Text style={styles.dateLeaderEyebrow}>No votes yet</Text>
-          <Text style={styles.dateLeaderTitle}>Waiting for votes</Text>
-          <Text style={styles.dateLeaderHelper}>
-            Waiting for the group to vote.
-          </Text>
-        </View>
-      )}
 
       {canManageTrip ? (
         <View style={styles.dateFinalizeBlock}>

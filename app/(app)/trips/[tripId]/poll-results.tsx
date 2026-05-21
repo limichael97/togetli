@@ -157,7 +157,6 @@ export default function DatePollResultsScreen() {
   }, [dateOptions, members, responses]);
 
   const hasLeadingTie = leadingResults.length > 1;
-  const leadingResult = leadingResults[0] ?? null;
   const waitingCount = Math.max(voterCount - voterNames.length, 0);
   const allEligibleVotersVoted = voterCount > 0 && waitingCount === 0;
   const canFinalizeLeadingDates =
@@ -240,40 +239,6 @@ export default function DatePollResultsScreen() {
         <Text style={styles.title}>Date Poll Results</Text>
         <Text style={styles.body}>See which dates work best for the group.</Text>
       </View>
-
-      {leadingResult ? (
-        <View style={styles.leaderCard}>
-          <Text style={styles.leaderEyebrow}>
-            {hasLeadingTie ? "Tie" : "Leading Date"}
-          </Text>
-          <Text style={styles.leaderTitle}>
-            {leadingResults.map((result) => formatDateRange(result.option)).join("\n")}
-          </Text>
-          {leadingResults.some((result) => !!result.option.label) ? (
-            <Text style={styles.leaderLabelText}>
-              {leadingResults
-                .map((result) => result.option.label)
-                .filter(Boolean)
-                .join(" · ")}
-            </Text>
-          ) : null}
-          <Text style={styles.leaderBody}>
-            {leadingResult.count} vote{leadingResult.count === 1 ? "" : "s"}
-            {hasLeadingTie ? " each" : ""}
-          </Text>
-          <Text style={styles.leaderHelper}>
-            {hasLeadingTie
-              ? "The group is split between these dates."
-              : "Current best option based on votes."}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.leaderCard}>
-          <Text style={styles.leaderEyebrow}>No votes yet</Text>
-          <Text style={styles.leaderTitle}>Waiting for votes</Text>
-          <Text style={styles.leaderHelper}>Waiting for the group to vote.</Text>
-        </View>
-      )}
 
       {canManageTrip ? (
         <View style={styles.finalizeBlock}>

@@ -30,7 +30,7 @@ import {
   type PollResponseDetailRow,
 } from "../../../lib/polls";
 import { leaveTrip } from "../../../lib/members";
-import { colors, radius } from "../../../lib/theme";
+import { colors } from "../../../lib/theme";
 import {
   getTripStage,
   isPollTrip,
@@ -625,6 +625,7 @@ export default function TripDetailScreen() {
   });
 
   const allEligibleVotersVoted = totalMemberCount > 0 && waitingCount === 0;
+  const datePollExists = hasFinalDates || dateOptions.length > 0 || stage !== "draft";
   const datePollStatus =
     hasFinalDates || isFinalized
       ? "Dates locked"
@@ -771,30 +772,58 @@ export default function TripDetailScreen() {
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionHeading}>Polls</Text>
         {isPollMode ? (
-          <View style={styles.pollCard}>
-            <View style={styles.pollCardHeader}>
-              <View style={styles.pollCardTextBlock}>
-                <Text style={styles.cardTitle}>Date Poll</Text>
-                <Text style={styles.cardBody}>{datePollDescription}</Text>
+          <>
+            {!datePollExists ? (
+              <View style={styles.pollCard}>
+                <View style={styles.pollCardTextBlock}>
+                  <Text style={styles.cardTitle}>Date Poll</Text>
+                  <Text style={styles.cardBody}>
+                    Decide when the trip should happen.
+                  </Text>
+                </View>
+                {canManageTrip ? (
+                  <Pressable
+                    onPress={() => router.push(`/(app)/trips/${tripId}/setup`)}
+                    style={({ pressed }) => [
+                      styles.cardButton,
+                      pressed ? styles.cardButtonPressed : null,
+                    ]}
+                  >
+                    <Text style={styles.cardButtonText}>Create Date Poll</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.cardHintText}>
+                    A planner can create the date poll.
+                  </Text>
+                )}
               </View>
-              <View style={styles.pollStateBadge}>
-                <Text style={styles.pollStateBadgeText}>{datePollStatus}</Text>
-              </View>
-            </View>
-            {datePollAction ? (
-              <Pressable
-                onPress={datePollAction.onPress}
-                style={({ pressed }) => [
-                  styles.cardButton,
-                  pressed ? styles.cardButtonPressed : null,
-                ]}
-              >
-                <Text style={styles.cardButtonText}>{datePollAction.label}</Text>
-              </Pressable>
             ) : (
-              <Text style={styles.cardHintText}>No action needed right now.</Text>
+              <View style={styles.pollCard}>
+                <View style={styles.pollCardHeader}>
+                  <View style={styles.pollCardTextBlock}>
+                    <Text style={styles.cardTitle}>Date Poll</Text>
+                    <Text style={styles.cardBody}>{datePollDescription}</Text>
+                  </View>
+                  <View style={styles.pollStateBadge}>
+                    <Text style={styles.pollStateBadgeText}>{datePollStatus}</Text>
+                  </View>
+                </View>
+                {datePollAction ? (
+                  <Pressable
+                    onPress={datePollAction.onPress}
+                    style={({ pressed }) => [
+                      styles.cardButton,
+                      pressed ? styles.cardButtonPressed : null,
+                    ]}
+                  >
+                    <Text style={styles.cardButtonText}>{datePollAction.label}</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.cardHintText}>No action needed right now.</Text>
+                )}
+              </View>
             )}
-          </View>
+          </>
         ) : (
           <View style={styles.card}>
             <SummaryRow
@@ -851,37 +880,6 @@ export default function TripDetailScreen() {
           )}
         </View>
       </View>
-
-      {isPollMode ? (
-        <View style={styles.sectionBlock}>
-          <Text style={styles.sectionHeading}>Create Poll</Text>
-          <View style={styles.card}>
-            <Text style={styles.cardBody}>
-              Start another group decision when you’re ready.
-            </Text>
-            <View style={styles.createPollList}>
-              <View style={styles.createPollOptionDisabled}>
-                <View style={styles.createPollTextBlock}>
-                  <Text style={styles.createPollTitle}>Stay Poll</Text>
-                  <Text style={styles.cardHintText}>
-                    Create this from Shared Ideas after adding stay options.
-                  </Text>
-                </View>
-                <Text style={styles.createPollBadgeText}>From Ideas</Text>
-              </View>
-              <View style={styles.createPollOptionDisabled}>
-                <View style={styles.createPollTextBlock}>
-                  <Text style={styles.createPollTitle}>Activity Poll</Text>
-                  <Text style={styles.cardHintText}>
-                    Vote on restaurants, activities, or plans.
-                  </Text>
-                </View>
-                <Text style={styles.createPollBadgeText}>Coming soon</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      ) : null}
 
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionHeading}>Shared Ideas</Text>
@@ -1197,36 +1195,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
     lineHeight: 19,
-  },
-  createPollList: {
-    gap: 8,
-    marginTop: 2,
-  },
-  createPollOptionDisabled: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    padding: 12,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
-    opacity: 0.85,
-  },
-  createPollTextBlock: {
-    flex: 1,
-    gap: 3,
-  },
-  createPollTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  createPollBadgeText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
   },
   divider: {
     height: 1,
