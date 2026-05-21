@@ -21,6 +21,7 @@ import {
   finalizeStayPollWinner,
   getTripSetupData,
   listPollResponseDetails,
+  markTripPlanned,
   parseStayPollDefinition,
   parseStayPollRankings,
   type PollResponseDetailRow,
@@ -35,47 +36,6 @@ function normalizeLink(value: string | null) {
   return `https://${trimmed}`;
 }
 
-function getLinkTypeLabel(link: string | null) {
-  const normalized = normalizeLink(link)?.toLowerCase() ?? "";
-  if (!normalized) return "Link";
-  if (normalized.includes("tiktok.com")) return "TikTok";
-  if (normalized.includes("instagram.com")) return "Instagram";
-  if (normalized.includes("airbnb.")) return "Airbnb";
-  return "Link";
-}
-
-function formatStayPriceSummary(value: string | null | undefined) {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-
-  const normalized = trimmed.replace(/[$,\s]/g, "");
-  if (/^\d+(\.\d+)?$/.test(normalized)) {
-    const amount = Number(normalized);
-    if (Number.isFinite(amount)) {
-      const formatter = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
-      });
-      return `${formatter.format(amount)} total`;
-    }
-  }
-
-  return trimmed;
-}
-
-function getStaySummaryItems(option: StayPollOption) {
-  const items: string[] = [];
-  const price = formatStayPriceSummary(option.total_price);
-  if (price) items.push(price);
-  if (option.beds?.trim()) items.push(`${option.beds.trim()} beds`);
-  if (option.bedrooms?.trim()) items.push(`${option.bedrooms.trim()} bedrooms`);
-  if (option.bathrooms?.trim()) items.push(`${option.bathrooms.trim()} bathrooms`);
-  if (option.location?.trim()) items.push(option.location.trim());
-  if (option.note?.trim()) items.push(option.note.trim());
-  return items;
-}
-
 type StayResultRow = {
   option: StayPollOption;
   totalPoints: number;
@@ -84,13 +44,6 @@ type StayResultRow = {
   thirdPlaceVotes: number;
   sourceIndex: number;
 };
-
-function getPlacementLabel(index: number) {
-  if (index === 0) return "Winner";
-  if (index === 1) return "Runner-up";
-  if (index === 2) return "Third";
-  return `#${index + 1}`;
-}
 
 function formatDateRange(option: {
   start_date: string;
@@ -136,6 +89,7 @@ export default function TripPollResultsScreen() {
   const [memberCount, setMemberCount] = useState(0);
   const [canManageTrip, setCanManageTrip] = useState(false);
   const [isTripMember, setIsTripMember] = useState(false);
+  const [finalizingDates, setFinalizingDates] = useState(false);
   const [finalizingWinner, setFinalizingWinner] = useState(false);
 
   useEffect(() => {
@@ -255,6 +209,18 @@ export default function TripPollResultsScreen() {
   const waitingMemberNames = eligibleVoters
     .filter((member) => !dateVoterUserIdSet.has(member.user_id))
     .map(getTripMemberDisplayName);
+  const allEligibleDateVotersVoted =
+    eligibleVoterUserIds.size > 0 && dateWaitingCount === 0;
+  const canFinalizeDatePoll =
+    canManageTrip &&
+    allEligibleDateVotersVoted &&
+    leadingDateResults.length === 1 &&
+    topDateCount > 0;
+  const dateFinalizeDisabledReason = !allEligibleDateVotersVoted
+    ? "Waiting on everyone to vote before finalizing."
+    : hasDateTie
+      ? "Resolve the tie before finalizing."
+      : "A clear leading date is needed before finalizing.";
 
   const stayResults = useMemo(() => {
     if (!stayPollDefinition) return [];
@@ -308,15 +274,6 @@ export default function TripPollResultsScreen() {
     });
   }, [responseDetails, stayPollDefinition]);
 
-  const stayOptionById = useMemo(() => {
-    return new Map(
-      (stayPollDefinition?.options ?? []).map((option) => [
-        option.source_note_id,
-        option,
-      ])
-    );
-  }, [stayPollDefinition]);
-
   const stayVoterCount = useMemo(() => {
     return responseDetails.reduce((count, response) => {
       const rankings = parseStayPollRankings(response.custom_poll_answers);
@@ -341,47 +298,6 @@ export default function TripPollResultsScreen() {
         row.firstPlaceVotes === leader.firstPlaceVotes
     );
   }, [stayResults, topStayTie]);
-
-  const myStayRankings = useMemo(() => {
-    const myResponse = responseDetails.find((response) => response.user_id === userId);
-    if (!myResponse) return null;
-
-    const rankings = parseStayPollRankings(myResponse.custom_poll_answers);
-    if (
-      !rankings.first_choice_note_id &&
-      !rankings.second_choice_note_id &&
-      !rankings.third_choice_note_id
-    ) {
-      return null;
-    }
-
-    return rankings;
-  }, [responseDetails, userId]);
-
-  const myVoteSummary = useMemo(() => {
-    if (!myStayRankings) return [];
-
-    return [
-      {
-        label: "Your 1st choice",
-        option: myStayRankings.first_choice_note_id
-          ? stayOptionById.get(myStayRankings.first_choice_note_id) ?? null
-          : null,
-      },
-      {
-        label: "Your 2nd choice",
-        option: myStayRankings.second_choice_note_id
-          ? stayOptionById.get(myStayRankings.second_choice_note_id) ?? null
-          : null,
-      },
-      {
-        label: "Your 3rd choice",
-        option: myStayRankings.third_choice_note_id
-          ? stayOptionById.get(myStayRankings.third_choice_note_id) ?? null
-          : null,
-      },
-    ].filter((entry) => entry.option);
-  }, [myStayRankings, stayOptionById]);
 
   const finalizedWinner = useMemo(() => {
     if (!stayPollDefinition?.finalized_winner_note_id) return null;
@@ -468,6 +384,37 @@ export default function TripPollResultsScreen() {
     );
   };
 
+  const handleFinalizeDates = () => {
+    const leading = leadingDateResults[0];
+    if (!tripId || !leading || !canFinalizeDatePoll || finalizingDates) return;
+
+    Alert.alert("Finalize dates?", formatDateRange(leading.option), [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Finalize Dates",
+        onPress: () => {
+          const persist = async () => {
+            setFinalizingDates(true);
+            try {
+              await markTripPlanned({
+                tripId,
+                finalStartDate: leading.option.start_date,
+                finalEndDate: leading.option.end_date,
+              });
+              Alert.alert("Dates finalized", "The trip dates are now locked.");
+            } catch (e: any) {
+              Alert.alert("Couldn't finalize dates", e?.message ?? String(e));
+            } finally {
+              setFinalizingDates(false);
+            }
+          };
+
+          void persist();
+        },
+      },
+    ]);
+  };
+
   if (!tripId) {
     return (
       <View style={styles.center}>
@@ -509,73 +456,20 @@ export default function TripPollResultsScreen() {
   }
 
   if (showStayResults) {
+    const featuredStay = finalizedWinner ?? computedWinner;
+
     return (
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>Stay Poll</Text>
           <Text style={styles.title}>Results</Text>
           <Text style={styles.pageBody}>
-            Ranked by total points, with first-place votes used as the visible
-            tie-breaker.
+            See the winning stay and compact ranked results.
           </Text>
         </View>
-
-        <View style={styles.participationCard}>
-          <View style={styles.participationHeader}>
-            <Text style={styles.participationTitle}>Participation</Text>
-            <Text style={styles.participationCount}>
-              {stayVoterCount} of {memberCount}
-            </Text>
-          </View>
-          <Text style={styles.participationBody}>
-            {memberCount - stayVoterCount > 0
-              ? `${memberCount - stayVoterCount} member${
-                  memberCount - stayVoterCount === 1 ? "" : "s"
-                } still haven't voted.`
-              : "Everyone on the trip has voted."}
-          </Text>
-        </View>
-
-        {myVoteSummary.length > 0 ? (
-          <View style={styles.myVoteCard}>
-            <View style={styles.myVoteHeader}>
-              <Text style={styles.myVoteTitle}>Your Vote</Text>
-              <Text style={styles.myVoteSubtitle}>Current ranking</Text>
-            </View>
-            <View style={styles.myVoteList}>
-              {myVoteSummary.map((entry) => (
-                <View key={entry.label} style={styles.myVoteRow}>
-                  <Text style={styles.myVoteLabel}>{entry.label}</Text>
-                  <Text style={styles.myVoteValue}>{entry.option?.title}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
 
         {stayResults.length === 0 ? (
           <Text style={styles.muted}>No stay options found.</Text>
-        ) : finalizedWinner ? (
-          <View style={[styles.heroCard, styles.heroCardFinalized]}>
-            <Text style={styles.heroEyebrow}>Finalized Stay</Text>
-            <Text style={styles.heroTitle}>{finalizedWinner.option.title}</Text>
-            <Text style={styles.heroBody}>
-              This stay has been finalized as the group's selected stay choice.
-            </Text>
-            <View style={styles.heroMetaRow}>
-              <View style={styles.heroMetaPill}>
-                <Text style={styles.heroMetaPillText}>
-                  {finalizedWinner.totalPoints} points
-                </Text>
-              </View>
-              <View style={styles.heroMetaPill}>
-                <Text style={styles.heroMetaPillText}>
-                  {finalizedWinner.firstPlaceVotes} first-place vote
-                  {finalizedWinner.firstPlaceVotes === 1 ? "" : "s"}
-                </Text>
-              </View>
-            </View>
-          </View>
         ) : topStayTie ? (
           <View style={[styles.heroCard, styles.heroCardTie]}>
             <Text style={styles.heroEyebrow}>Tie</Text>
@@ -592,28 +486,58 @@ export default function TripPollResultsScreen() {
               </View>
             </View>
           </View>
-        ) : (
-          <View style={[styles.heroCard, styles.heroCardWinner]}>
-            <Text style={styles.heroEyebrow}>Winner</Text>
-            <Text style={styles.heroTitle}>{stayResults[0].option.title}</Text>
-            <Text style={styles.heroBody}>
-              {computedWinner?.totalPoints} points with {computedWinner?.firstPlaceVotes}{" "}
-              first-place vote{computedWinner?.firstPlaceVotes === 1 ? "" : "s"}.
+        ) : featuredStay ? (
+          <View
+            style={[
+              styles.heroCard,
+              finalizedWinner ? styles.heroCardFinalized : styles.heroCardWinner,
+            ]}
+          >
+            <Text style={styles.heroEyebrow}>
+              {finalizedWinner ? "Finalized Stay" : "Winner"}
             </Text>
+            <Text style={styles.heroTitle}>{featuredStay.option.title}</Text>
             <View style={styles.heroMetaRow}>
               <View style={styles.heroMetaPill}>
                 <Text style={styles.heroMetaPillText}>
-                  {computedWinner?.secondPlaceVotes ?? 0} second-place votes
+                  {featuredStay.totalPoints} points
                 </Text>
               </View>
               <View style={styles.heroMetaPill}>
                 <Text style={styles.heroMetaPillText}>
-                  {computedWinner?.thirdPlaceVotes ?? 0} third-place votes
+                  {featuredStay.firstPlaceVotes} first-place vote
+                  {featuredStay.firstPlaceVotes === 1 ? "" : "s"}
                 </Text>
               </View>
             </View>
+            {normalizeLink(featuredStay.option.link) ? (
+              <Pressable
+                onPress={() => handleOpenStayLink(featuredStay.option.link)}
+                style={({ pressed }) => [
+                  styles.linkActionButton,
+                  styles.heroActionButton,
+                  pressed ? styles.linkActionButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.linkActionButtonText}>View Stay</Text>
+              </Pressable>
+            ) : null}
           </View>
-        )}
+        ) : null}
+
+        <View style={styles.participationCard}>
+          <View style={styles.participationHeader}>
+            <Text style={styles.participationTitle}>Participation</Text>
+            <Text style={styles.participationCount}>
+              {stayVoterCount} of {memberCount} voted
+            </Text>
+          </View>
+          <Text style={styles.participationBody}>
+            {memberCount - stayVoterCount > 0
+              ? `${memberCount - stayVoterCount} waiting`
+              : "Everyone has voted."}
+          </Text>
+        </View>
 
         {canManageTrip && !topStayTie && computedWinner && !finalizedWinner ? (
           <Pressable
@@ -633,23 +557,10 @@ export default function TripPollResultsScreen() {
 
         <View style={styles.resultsHeader}>
           <Text style={styles.resultsTitle}>Ranked Options</Text>
-          <Text style={styles.resultsSubtitle}>
-            Compare the final standings, vote mix, and stay details.
-          </Text>
         </View>
 
         <View style={styles.stayResultsList}>
           {stayResults.map((result, index) => {
-            const normalizedLink = normalizeLink(result.option.link);
-            const summaryItems = getStaySummaryItems(result.option);
-            const myChoiceLabel =
-              myStayRankings?.first_choice_note_id === result.option.source_note_id
-                ? "Your 1st choice"
-                : myStayRankings?.second_choice_note_id === result.option.source_note_id
-                  ? "Your 2nd choice"
-                  : myStayRankings?.third_choice_note_id === result.option.source_note_id
-                    ? "Your 3rd choice"
-                    : null;
             const isFinalizedWinner =
               stayPollDefinition?.finalized_winner_note_id ===
               result.option.source_note_id;
@@ -686,19 +597,9 @@ export default function TripPollResultsScreen() {
                   </View>
                   <View style={styles.stayResultHeaderText}>
                     <View style={styles.resultBadgeRow}>
-                      <View style={styles.placementBadge}>
-                        <Text style={styles.placementBadgeText}>
-                          {getPlacementLabel(index)}
-                        </Text>
-                      </View>
                       {isFinalizedWinner ? (
                         <View style={styles.finalizedBadge}>
-                          <Text style={styles.finalizedBadgeText}>Finalized Winner</Text>
-                        </View>
-                      ) : null}
-                      {myChoiceLabel ? (
-                        <View style={styles.myChoiceBadge}>
-                          <Text style={styles.myChoiceBadgeText}>{myChoiceLabel}</Text>
+                          <Text style={styles.finalizedBadgeText}>Winner</Text>
                         </View>
                       ) : null}
                     </View>
@@ -708,71 +609,22 @@ export default function TripPollResultsScreen() {
                         {result.totalPoints} point{result.totalPoints === 1 ? "" : "s"}
                       </Text>
                       <Text style={styles.stayResultPointsHint}>
-                        total score
+                        {result.firstPlaceVotes} first-place
                       </Text>
                     </View>
                   </View>
-                </View>
-
-                <View style={styles.voteStatsRow}>
-                  <View style={styles.voteStatPill}>
-                    <Text style={styles.voteStatText}>
-                      1st: {result.firstPlaceVotes}
-                    </Text>
-                  </View>
-                  <View style={styles.voteStatPill}>
-                    <Text style={styles.voteStatText}>
-                      2nd: {result.secondPlaceVotes}
-                    </Text>
-                  </View>
-                  <View style={styles.voteStatPill}>
-                    <Text style={styles.voteStatText}>
-                      3rd: {result.thirdPlaceVotes}
-                    </Text>
-                  </View>
-                </View>
-
-                {summaryItems.length > 0 ? (
-                  <View style={styles.staySummaryList}>
-                    {summaryItems.map((item, summaryIndex) => (
-                      <View
-                        key={`${result.option.source_note_id}-${summaryIndex}`}
-                        style={styles.staySummaryPill}
-                      >
-                        <Text style={styles.staySummaryPillText}>{item}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-
-                {normalizedLink ? (
-                  <View style={styles.stayLinkCard}>
-                    <View style={styles.stayLinkHeader}>
-                      <View style={styles.linkSourceBadge}>
-                        <Text style={styles.linkSourceBadgeText}>
-                          {getLinkTypeLabel(result.option.link)}
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={() => handleOpenStayLink(result.option.link)}
-                        style={({ pressed }) => [
-                          styles.linkActionButton,
-                          pressed ? styles.linkActionButtonPressed : null,
-                        ]}
-                      >
-                        <Text style={styles.linkActionButtonText}>View</Text>
-                      </Pressable>
-                    </View>
-                    <Text style={styles.stayLinkLabel}>Source link</Text>
-                    <Text
-                      style={styles.stayLinkValue}
-                      numberOfLines={1}
-                      ellipsizeMode="middle"
+                  {normalizeLink(result.option.link) ? (
+                    <Pressable
+                      onPress={() => handleOpenStayLink(result.option.link)}
+                      style={({ pressed }) => [
+                        styles.linkActionButton,
+                        pressed ? styles.linkActionButtonPressed : null,
+                      ]}
                     >
-                      {normalizedLink}
-                    </Text>
-                  </View>
-                ) : null}
+                      <Text style={styles.linkActionButtonText}>View</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
             );
           })}
@@ -827,6 +679,32 @@ export default function TripPollResultsScreen() {
           </Text>
         </View>
       )}
+
+      {canManageTrip ? (
+        <View style={styles.dateFinalizeBlock}>
+          <Pressable
+            onPress={handleFinalizeDates}
+            disabled={!canFinalizeDatePoll || finalizingDates}
+            style={({ pressed }) => [
+              styles.finalizeButton,
+              styles.dateFinalizeButton,
+              !canFinalizeDatePoll || finalizingDates
+                ? styles.finalizeButtonDisabled
+                : null,
+              pressed && canFinalizeDatePoll && !finalizingDates
+                ? styles.finalizeButtonPressed
+                : null,
+            ]}
+          >
+            <Text style={styles.finalizeButtonText}>
+              {finalizingDates ? "Finalizing..." : "Finalize Dates"}
+            </Text>
+          </Pressable>
+          {!canFinalizeDatePoll ? (
+            <Text style={styles.finalizeHelp}>{dateFinalizeDisabledReason}</Text>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.resultsHeader}>
         <Text style={styles.resultsTitle}>Date Options</Text>
@@ -1262,6 +1140,18 @@ const styles = StyleSheet.create({
   finalizeButtonPressed: { opacity: 0.84 },
   finalizeButtonDisabled: { opacity: 0.5 },
   finalizeButtonText: { color: colors.primaryText, fontWeight: "700" },
+  dateFinalizeBlock: {
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  dateFinalizeButton: {
+    marginBottom: 0,
+  },
+  finalizeHelp: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   resultsHeader: {
     gap: 2,
     marginBottom: spacing.md,
@@ -1432,6 +1322,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e4e4e4",
     backgroundColor: "#fff",
+  },
+  heroActionButton: {
+    alignSelf: "flex-start",
+    marginTop: spacing.xs,
   },
   linkActionButtonPressed: { opacity: 0.82 },
   linkActionButtonText: { color: "#111", fontWeight: "600" },

@@ -30,7 +30,7 @@ import {
   type PollResponseDetailRow,
 } from "../../../lib/polls";
 import { leaveTrip } from "../../../lib/members";
-import { colors } from "../../../lib/theme";
+import { colors, radius } from "../../../lib/theme";
 import {
   getTripStage,
   isPollTrip,
@@ -624,23 +624,32 @@ export default function TripDetailScreen() {
     onOpenTravel: () => router.push(`/(app)/trips/${tripId}/travel`),
   });
 
+  const allEligibleVotersVoted = totalMemberCount > 0 && waitingCount === 0;
   const datePollStatus =
-    stage === "draft" ? "Setup" : stage === "polling" ? "Live" : "Completed";
+    hasFinalDates || isFinalized
+      ? "Dates locked"
+      : stage === "draft"
+        ? "Setup required"
+        : stage === "polling" && votedCount === 0
+          ? "No votes yet"
+          : stage === "polling" && !allEligibleVotersVoted
+            ? `Waiting on ${waitingCount}`
+            : stage === "polling"
+              ? "Ready to finalize"
+              : "Dates locked";
   const datePollDescription =
     stage === "draft"
       ? canManageTrip
         ? "Add date options and send the date poll when details are ready."
         : "A planner is still preparing the date poll."
       : stage === "polling"
-        ? leadingDateLabel
-          ? `${hasDatePollTie ? "Tie" : `Leading: ${leadingDateLabel}`} · ${votedCount} of ${totalMemberCount} voted`
-          : `No votes yet · 0 of ${totalMemberCount} voted`
+        ? `${leadingDateLabel ? `${hasDatePollTie ? "Tie" : `Leading: ${leadingDateLabel}`} · ` : ""}${votedCount} of ${totalMemberCount} voted`
         : `${votedCount} of ${totalMemberCount} voted`;
   const datePollAction = (() => {
     if (stage === "draft") {
       if (!canManageTrip) return null;
       return {
-        label: draftReady ? "Review Poll" : "Continue Setup",
+        label: "Continue Setup",
         onPress: () => router.push(`/(app)/trips/${tripId}/setup`),
       };
     }
@@ -762,55 +771,30 @@ export default function TripDetailScreen() {
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionHeading}>Polls</Text>
         {isPollMode ? (
-          <>
-            <View style={styles.pollCard}>
-              <View style={styles.pollCardHeader}>
-                <View style={styles.pollCardTextBlock}>
-                  <Text style={styles.cardTitle}>Date Poll</Text>
-                  <Text style={styles.cardBody}>{datePollDescription}</Text>
-                </View>
-                <View style={styles.pollStateBadge}>
-                  <Text style={styles.pollStateBadgeText}>{datePollStatus}</Text>
-                </View>
+          <View style={styles.pollCard}>
+            <View style={styles.pollCardHeader}>
+              <View style={styles.pollCardTextBlock}>
+                <Text style={styles.cardTitle}>Date Poll</Text>
+                <Text style={styles.cardBody}>{datePollDescription}</Text>
               </View>
-              {datePollAction ? (
-                <Pressable
-                  onPress={datePollAction.onPress}
-                  style={({ pressed }) => [
-                    styles.cardButton,
-                    pressed ? styles.cardButtonPressed : null,
-                  ]}
-                >
-                  <Text style={styles.cardButtonText}>{datePollAction.label}</Text>
-                </Pressable>
-              ) : (
-                <Text style={styles.cardHintText}>No action needed right now.</Text>
-              )}
+              <View style={styles.pollStateBadge}>
+                <Text style={styles.pollStateBadgeText}>{datePollStatus}</Text>
+              </View>
             </View>
-
-            <View style={[styles.pollCard, styles.secondaryPollCard]}>
-              <View style={styles.pollCardHeader}>
-                <View style={styles.pollCardTextBlock}>
-                  <Text style={styles.cardTitle}>Stay Poll</Text>
-                  <Text style={styles.cardBody}>
-                    Stay decisions can start from the shared ideas board once date voting is moving.
-                  </Text>
-                </View>
-                <View style={styles.secondaryPollStateBadge}>
-                  <Text style={styles.secondaryPollStateBadgeText}>Secondary</Text>
-                </View>
-              </View>
+            {datePollAction ? (
               <Pressable
-                onPress={() => router.push(`/(app)/trips/${tripId}/notes`)}
+                onPress={datePollAction.onPress}
                 style={({ pressed }) => [
-                  styles.secondaryCardButton,
+                  styles.cardButton,
                   pressed ? styles.cardButtonPressed : null,
                 ]}
               >
-                <Text style={styles.secondaryCardButtonText}>Open Shared Ideas</Text>
+                <Text style={styles.cardButtonText}>{datePollAction.label}</Text>
               </Pressable>
-            </View>
-          </>
+            ) : (
+              <Text style={styles.cardHintText}>No action needed right now.</Text>
+            )}
+          </View>
         ) : (
           <View style={styles.card}>
             <SummaryRow
@@ -868,11 +852,42 @@ export default function TripDetailScreen() {
         </View>
       </View>
 
+      {isPollMode ? (
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionHeading}>Create Poll</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardBody}>
+              Start another group decision when you’re ready.
+            </Text>
+            <View style={styles.createPollList}>
+              <View style={styles.createPollOptionDisabled}>
+                <View style={styles.createPollTextBlock}>
+                  <Text style={styles.createPollTitle}>Stay Poll</Text>
+                  <Text style={styles.cardHintText}>
+                    Create this from Shared Ideas after adding stay options.
+                  </Text>
+                </View>
+                <Text style={styles.createPollBadgeText}>From Ideas</Text>
+              </View>
+              <View style={styles.createPollOptionDisabled}>
+                <View style={styles.createPollTextBlock}>
+                  <Text style={styles.createPollTitle}>Activity Poll</Text>
+                  <Text style={styles.cardHintText}>
+                    Vote on restaurants, activities, or plans.
+                  </Text>
+                </View>
+                <Text style={styles.createPollBadgeText}>Coming soon</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionHeading}>Shared Ideas</Text>
         <View style={styles.card}>
           <Text style={styles.cardBody}>
-            Keep trip links, reminders, and shared planning notes in one place.
+            Save stays, restaurants, activities, and links for the trip.
           </Text>
           <Pressable
             onPress={() => router.push(`/(app)/trips/${tripId}/notes`)}
@@ -1002,59 +1017,59 @@ export default function TripDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.background,
-    padding: 20,
-    paddingTop: 16,
-    paddingBottom: 32,
-    gap: 16,
+    padding: 18,
+    paddingTop: 14,
+    paddingBottom: 28,
+    gap: 14,
   },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   empty: { color: colors.textMuted },
   error: { color: colors.danger },
 
   heroCard: {
-    padding: 20,
-    borderRadius: 24,
+    padding: 16,
+    borderRadius: 20,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "700",
     letterSpacing: -0.3,
     color: colors.text,
   },
-  meta: { marginTop: 6, color: colors.textMuted, fontSize: 15 },
+  meta: { marginTop: 4, color: colors.textMuted, fontSize: 14 },
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 16,
+    gap: 6,
+    marginTop: 12,
   },
   roleBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
     backgroundColor: colors.primary,
   },
   roleBadgeText: { color: colors.primaryText, fontWeight: "600", fontSize: 12 },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
     backgroundColor: colors.surfaceMuted,
   },
   statusBadgeText: { color: colors.text, fontWeight: "600", fontSize: 12 },
   statusSentence: {
-    marginTop: 14,
+    marginTop: 12,
     color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 20,
   },
   leaveBtn: {
-    marginTop: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    marginTop: 12,
+    paddingVertical: 7,
+    paddingHorizontal: 11,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1064,8 +1079,8 @@ const styles = StyleSheet.create({
   leaveBtnPressed: { opacity: 0.7 },
 
   primaryCard: {
-    padding: 20,
-    borderRadius: 20,
+    padding: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.primaryMuted,
     backgroundColor: colors.primarySoft,
@@ -1078,21 +1093,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   primaryCardTitle: {
-    marginTop: 8,
+    marginTop: 6,
     color: colors.ink,
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: "700",
   },
   primaryCardBody: {
-    marginTop: 10,
+    marginTop: 8,
     color: colors.inkSoft,
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 20,
   },
   primaryCtaButton: {
-    marginTop: 18,
+    marginTop: 14,
     backgroundColor: colors.primary,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderRadius: 999,
   },
   primaryCtaButtonText: {
@@ -1104,12 +1119,12 @@ const styles = StyleSheet.create({
   primaryCtaButtonPressed: { opacity: 0.8 },
   primaryCtaButtonDisabled: { opacity: 0.45 },
   primaryCardHint: {
-    marginTop: 18,
+    marginTop: 14,
     color: colors.textMuted,
   },
 
   sectionBlock: {
-    gap: 12,
+    gap: 9,
   },
   sectionHeading: {
     fontSize: 17,
@@ -1118,20 +1133,20 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    padding: 16,
-    borderRadius: 18,
+    padding: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    gap: 12,
+    gap: 10,
   },
   pollCard: {
-    padding: 16,
-    borderRadius: 18,
+    padding: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    gap: 14,
+    gap: 10,
   },
   secondaryPollCard: {
     backgroundColor: colors.surfaceMuted,
@@ -1140,11 +1155,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
   },
   pollCardTextBlock: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   pollStateBadge: {
     paddingHorizontal: 10,
@@ -1176,12 +1191,42 @@ const styles = StyleSheet.create({
   cardBody: {
     color: colors.textMuted,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 19,
   },
   cardHintText: {
     color: colors.textMuted,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 19,
+  },
+  createPollList: {
+    gap: 8,
+    marginTop: 2,
+  },
+  createPollOptionDisabled: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    opacity: 0.85,
+  },
+  createPollTextBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  createPollTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  createPollBadgeText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
   },
   divider: {
     height: 1,

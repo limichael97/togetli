@@ -159,10 +159,17 @@ export default function DatePollResultsScreen() {
   const hasLeadingTie = leadingResults.length > 1;
   const leadingResult = leadingResults[0] ?? null;
   const waitingCount = Math.max(voterCount - voterNames.length, 0);
+  const allEligibleVotersVoted = voterCount > 0 && waitingCount === 0;
   const canFinalizeLeadingDates =
-    canManageTrip && leadingResults.length === 1 && leadingResults[0].count > 0;
-  const finalizeDisabledReason =
-    "A clear leading date is needed before finalizing.";
+    canManageTrip &&
+    allEligibleVotersVoted &&
+    leadingResults.length === 1 &&
+    leadingResults[0].count > 0;
+  const finalizeDisabledReason = !allEligibleVotersVoted
+    ? "Waiting on everyone to vote before finalizing."
+    : hasLeadingTie
+      ? "Resolve the tie before finalizing."
+      : "A clear leading date is needed before finalizing.";
 
   const handleFinalize = () => {
     const leading = leadingResults[0];

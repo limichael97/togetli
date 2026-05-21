@@ -51,6 +51,7 @@ import { supabase } from "../../../supabaseClient";
 import { AppInput } from "../../../components/ui/AppInput";
 import { AppButton } from "../../../components/ui/AppButton";
 import { getTripAwareCopy } from "../../../lib/tripCopy";
+import { colors, radius } from "../../../lib/theme";
 
 const ROLE_LABELS: Record<TripRole, string> = {
   creator: "Creator",
@@ -484,38 +485,54 @@ export default function TripDetailScreen() {
 
     if (role === "guest") {
       return {
-        label: "Awaiting Responses",
+        label: "Awaiting Votes",
         description:
-          "You’re up to date. Check back as the rest of the group responds.",
+          "You’re up to date. Check back as the rest of the group votes.",
         onPress: undefined,
         disabled: true,
       };
     }
 
     return {
-      label: "Awaiting Responses",
+      label: "Awaiting Votes",
       description:
-        "You’re up to date. Check back as the rest of the group responds.",
+        "You’re up to date. Check back as the rest of the group votes.",
       onPress: undefined,
       disabled: true,
     };
   })();
 
+  const availabilityWaitingCount = Math.max(
+    eligibleVotingMemberCount - responderUserIds.length,
+    0
+  );
+  const allEligibleAvailabilityVotersVoted =
+    eligibleVotingMemberCount > 0 && availabilityWaitingCount === 0;
   const availabilityPollStatus =
-    stage === "draft" ? "Setup" : stage === "polling" ? "Live" : "Completed";
+    isFinalized
+      ? "Dates locked"
+      : stage === "draft"
+        ? "Setup required"
+        : stage === "polling" && responderUserIds.length === 0
+          ? "No votes yet"
+          : stage === "polling" && !allEligibleAvailabilityVotersVoted
+            ? `Waiting on ${availabilityWaitingCount}`
+            : stage === "polling"
+              ? "Ready to finalize"
+              : "Dates locked";
   const availabilityPollDescription =
     stage === "draft"
       ? canManageTrip
         ? "Finish setup and send the date poll when details are ready."
         : "A planner is still preparing the date poll."
       : stage === "polling"
-        ? `${responderUserIds.length} of ${eligibleVotingMemberCount} members voted so far.`
-        : `${responderUserIds.length} of ${eligibleVotingMemberCount} members voted.`;
+        ? `${responderUserIds.length} of ${eligibleVotingMemberCount} voted.`
+        : `${responderUserIds.length} of ${eligibleVotingMemberCount} voted.`;
   const availabilityPollAction = (() => {
     if (stage === "draft") {
       if (!canManageTrip) return null;
       return {
-        label: draftReady ? "Review Poll" : "Continue Setup",
+        label: "Continue Setup",
         onPress: () => router.push(`/(tabs)/trips/${tripId}/setup`),
       };
     }
@@ -815,57 +832,90 @@ export default function TripDetailScreen() {
           )}
         </View>
 
-        <View style={styles.pollCard}>
-          <View style={styles.pollCardHeader}>
-            <View style={styles.pollCardTextBlock}>
-              <Text style={styles.cardTitle}>Stay Poll</Text>
-              <Text style={styles.cardBody}>{stayPollDescription}</Text>
-              {stayPollIsFinalized ? (
-                <Text style={styles.cardHintText}>
-                  The group has completed the stay poll and locked in its stay choice.
-                </Text>
-              ) : null}
+        {stayPollExists ? (
+          <View style={styles.pollCard}>
+            <View style={styles.pollCardHeader}>
+              <View style={styles.pollCardTextBlock}>
+                <Text style={styles.cardTitle}>Stay Poll</Text>
+                <Text style={styles.cardBody}>{stayPollDescription}</Text>
+                {stayPollIsFinalized ? (
+                  <Text style={styles.cardHintText}>
+                    The group has completed the stay poll and locked in its stay choice.
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.pollStateBadge}>
+                <Text style={styles.pollStateBadgeText}>{stayPollStatus}</Text>
+              </View>
             </View>
-            <View style={styles.pollStateBadge}>
-              <Text style={styles.pollStateBadgeText}>{stayPollStatus}</Text>
-            </View>
-          </View>
-          {stayPollAction ? (
-            <View style={styles.cardActionStack}>
-              <Pressable
-                onPress={stayPollAction.onPress}
-                style={({ pressed }) => [
-                  styles.cardButton,
-                  styles.fullWidthButton,
-                  pressed ? styles.cardButtonPressed : null,
-                ]}
-              >
-                <Text style={styles.cardButtonText}>{stayPollAction.label}</Text>
-              </Pressable>
-              {stayPollIsFinalized && finalizedStayOption?.link ? (
+            {stayPollAction ? (
+              <View style={styles.cardActionStack}>
                 <Pressable
-                  onPress={() => Linking.openURL(finalizedStayOption.link!)}
+                  onPress={stayPollAction.onPress}
                   style={({ pressed }) => [
-                    styles.secondaryCardButton,
+                    styles.cardButton,
                     styles.fullWidthButton,
                     pressed ? styles.cardButtonPressed : null,
                   ]}
                 >
-                  <Text style={styles.secondaryCardButtonText}>View Listing</Text>
+                  <Text style={styles.cardButtonText}>{stayPollAction.label}</Text>
                 </Pressable>
-              ) : null}
-            </View>
-          ) : (
-            <Text style={styles.cardHintText}>No action needed right now.</Text>
-          )}
-        </View>
+                {stayPollIsFinalized && finalizedStayOption?.link ? (
+                  <Pressable
+                    onPress={() => Linking.openURL(finalizedStayOption.link!)}
+                    style={({ pressed }) => [
+                      styles.secondaryCardButton,
+                      styles.fullWidthButton,
+                      pressed ? styles.cardButtonPressed : null,
+                    ]}
+                  >
+                    <Text style={styles.secondaryCardButtonText}>View Listing</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : (
+              <Text style={styles.cardHintText}>No action needed right now.</Text>
+            )}
+          </View>
+        ) : null}
       </View>
+
+      {!stayPollExists ? (
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionHeading}>Create Poll</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardBody}>
+              Start another group decision when you’re ready.
+            </Text>
+            <View style={styles.createPollList}>
+              <View style={styles.createPollOptionDisabled}>
+                <View style={styles.createPollTextBlock}>
+                  <Text style={styles.createPollTitle}>Stay Poll</Text>
+                  <Text style={styles.cardHintText}>
+                    Create this from Shared Ideas after adding stay options.
+                  </Text>
+                </View>
+                <Text style={styles.createPollBadgeText}>From Ideas</Text>
+              </View>
+              <View style={styles.createPollOptionDisabled}>
+                <View style={styles.createPollTextBlock}>
+                  <Text style={styles.createPollTitle}>Activity Poll</Text>
+                  <Text style={styles.cardHintText}>
+                    Vote on restaurants, activities, or plans.
+                  </Text>
+                </View>
+                <Text style={styles.createPollBadgeText}>Coming soon</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionHeading}>Shared Ideas</Text>
         <View style={styles.card}>
           <Text style={styles.cardBody}>
-            {tripCopy.sharedIdeasDescription}
+            Save stays, restaurants, activities, and links for the trip.
           </Text>
           <Pressable
             onPress={() => router.push(`/(tabs)/trips/${tripId}/notes`)}
@@ -1202,18 +1252,18 @@ export default function TripDetailScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: 20,
-    paddingTop: 16,
-    paddingBottom: 32,
-    gap: 16,
+    padding: 18,
+    paddingTop: 14,
+    paddingBottom: 28,
+    gap: 14,
   },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   empty: { color: "#666" },
   error: { color: "tomato" },
 
   heroCard: {
-    padding: 20,
-    borderRadius: 24,
+    padding: 16,
+    borderRadius: 20,
     backgroundColor: "#f8f8f8",
     borderWidth: 1,
     borderColor: "#ececec",
@@ -1222,60 +1272,60 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
   },
   titleTextBlock: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "700",
     letterSpacing: -0.3,
     color: "#111",
   },
-  meta: { color: "#666", fontSize: 15 },
+  meta: { color: "#666", fontSize: 14 },
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 16,
+    gap: 6,
+    marginTop: 12,
   },
   roleBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
     backgroundColor: "#111",
   },
   roleBadgeText: { color: "#fff", fontWeight: "600", fontSize: 12 },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
     backgroundColor: "#ececec",
   },
   statusBadgeText: { color: "#333", fontWeight: "600", fontSize: 12 },
   memberPreviewButton: {
-    marginTop: 16,
+    marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     minWidth: 0,
     borderWidth: 1,
     borderColor: "#ededed",
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 16,
+    padding: 11,
     backgroundColor: "#fff",
   },
   memberPreviewButtonPressed: { opacity: 0.75 },
   memberPillRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
   },
   memberPill: {
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     borderRadius: 999,
     backgroundColor: "#111",
     alignItems: "center",
@@ -1283,13 +1333,13 @@ const styles = StyleSheet.create({
   },
   memberPillText: {
     color: "#fff",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
   },
   memberOverflowPill: {
-    minWidth: 34,
-    height: 34,
-    paddingHorizontal: 10,
+    minWidth: 30,
+    height: 30,
+    paddingHorizontal: 8,
     borderRadius: 999,
     backgroundColor: "#e9e9e9",
     alignItems: "center",
@@ -1297,7 +1347,7 @@ const styles = StyleSheet.create({
   },
   memberOverflowText: {
     color: "#333",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
   },
   memberPreviewTextBlock: {
@@ -1306,7 +1356,7 @@ const styles = StyleSheet.create({
   },
   memberPreviewText: {
     color: "#111",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
   },
   memberPreviewSubtext: {
@@ -1320,7 +1370,7 @@ const styles = StyleSheet.create({
   },
   compactInviteButton: {
     alignSelf: "flex-start",
-    marginTop: 12,
+    marginTop: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
@@ -1350,8 +1400,8 @@ const styles = StyleSheet.create({
   },
 
   primaryCard: {
-    padding: 20,
-    borderRadius: 20,
+    padding: 16,
+    borderRadius: 18,
     backgroundColor: "#111",
   },
   primaryCardEyebrow: {
@@ -1362,21 +1412,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   primaryCardTitle: {
-    marginTop: 8,
+    marginTop: 6,
     color: "#fff",
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: "700",
   },
   primaryCardBody: {
-    marginTop: 10,
+    marginTop: 8,
     color: "rgba(255,255,255,0.82)",
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 20,
   },
   primaryCtaButton: {
-    marginTop: 18,
+    marginTop: 14,
     backgroundColor: "#fff",
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderRadius: 999,
   },
   primaryCtaButtonText: {
@@ -1388,12 +1438,12 @@ const styles = StyleSheet.create({
   primaryCtaButtonPressed: { opacity: 0.8 },
   primaryCtaButtonDisabled: { opacity: 0.45 },
   primaryCardHint: {
-    marginTop: 18,
+    marginTop: 14,
     color: "rgba(255,255,255,0.7)",
   },
 
   sectionBlock: {
-    gap: 12,
+    gap: 9,
   },
   sectionHeading: {
     fontSize: 17,
@@ -1401,30 +1451,30 @@ const styles = StyleSheet.create({
     color: "#111",
   },
   card: {
-    padding: 16,
-    borderRadius: 18,
+    padding: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#ececec",
     backgroundColor: "#fff",
-    gap: 12,
+    gap: 10,
   },
   pollCard: {
-    padding: 16,
-    borderRadius: 18,
+    padding: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#ececec",
     backgroundColor: "#fff",
-    gap: 12,
+    gap: 10,
   },
   pollCardHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
   },
   pollCardTextBlock: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   pollStateBadge: {
     paddingHorizontal: 10,
@@ -1445,12 +1495,42 @@ const styles = StyleSheet.create({
   cardBody: {
     color: "#555",
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 19,
   },
   cardHintText: {
     color: "#666",
     fontSize: 13,
     lineHeight: 18,
+  },
+  createPollList: {
+    gap: 8,
+    marginTop: 2,
+  },
+  createPollOptionDisabled: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    opacity: 0.85,
+  },
+  createPollTextBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  createPollTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  createPollBadgeText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
   },
   cardActionStack: {
     gap: 10,
