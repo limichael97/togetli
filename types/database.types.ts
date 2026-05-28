@@ -277,9 +277,11 @@ export type Database = {
           avatar_url: string | null
           created_at: string
           display_name: string | null
+          first_name: string | null
           full_name: string | null
           home_airport: string | null
           id: string
+          last_name: string | null
           onboarding_completed: boolean
           timezone: string | null
           updated_at: string
@@ -289,9 +291,11 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
+          first_name?: string | null
           full_name?: string | null
           home_airport?: string | null
           id: string
+          last_name?: string | null
           onboarding_completed?: boolean
           timezone?: string | null
           updated_at?: string
@@ -301,9 +305,11 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
+          first_name?: string | null
           full_name?: string | null
           home_airport?: string | null
           id?: string
+          last_name?: string | null
           onboarding_completed?: boolean
           timezone?: string | null
           updated_at?: string

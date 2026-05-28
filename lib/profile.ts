@@ -5,6 +5,8 @@ export type ProfileRow = {
   id: string;
   full_name: string | null;
   display_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
   username: string | null;
   onboarding_completed: boolean | null;
   timezone: string | null;
@@ -16,7 +18,7 @@ export async function fetchMyProfile(userId: string) {
   console.log("[profile] fetchMyProfile start", { userId });
   const result = await supabase
     .from("profiles")
-    .select("id, full_name, display_name, username, onboarding_completed, timezone, home_airport")
+    .select("id, full_name, display_name, first_name, last_name, username, onboarding_completed, timezone, home_airport")
     .eq("id", userId)
     .maybeSingle();
   console.log("[profile] fetchMyProfile result", {
@@ -37,8 +39,37 @@ export async function upsertMyProfile(userId: string, patch: Partial<ProfileRow>
       },
       { onConflict: "id" }
     )
-    .select("id, full_name, display_name, username, onboarding_completed, timezone, home_airport")
+    .select("id, full_name, display_name, first_name, last_name, username, onboarding_completed, timezone, home_airport")
     .single();
+}
+
+type DisplayProfile = {
+  display_name?: string | null;
+  first_name?: string | null;
+  full_name?: string | null;
+  email?: string | null;
+};
+
+export function getProfileDisplayName(
+  profile: DisplayProfile | null | undefined,
+  fallbackEmail?: string | null
+) {
+  return (
+    profile?.display_name?.trim() ||
+    profile?.first_name?.trim() ||
+    profile?.full_name?.trim() ||
+    profile?.email?.trim() ||
+    fallbackEmail?.trim() ||
+    "Friend"
+  );
+}
+
+function splitName(value: string | null | undefined) {
+  const parts = value?.trim().split(/\s+/).filter(Boolean) ?? [];
+  return {
+    firstName: parts[0] ?? null,
+    lastName: parts.slice(1).join(" ") || null,
+  };
 }
 
 function getEmailLocalPart(email: string | null | undefined) {
@@ -104,15 +135,24 @@ export async function ensureProfileIdentity(
 
   const fullName =
     profile?.full_name?.trim() || options?.fullName?.trim() || null;
+  const splitFullName = splitName(fullName);
   const displayName =
     profile?.display_name?.trim() ||
     options?.displayName?.trim() ||
+    profile?.first_name?.trim() ||
+    splitFullName.firstName ||
     fullName?.split(/\s+/)[0] ||
     getEmailLocalPart(email);
 
   const patch: Partial<ProfileRow> = {};
   if (!profile?.full_name?.trim() && fullName) {
     patch.full_name = fullName;
+  }
+  if (!profile?.first_name?.trim() && splitFullName.firstName) {
+    patch.first_name = splitFullName.firstName;
+  }
+  if (!profile?.last_name?.trim() && splitFullName.lastName) {
+    patch.last_name = splitFullName.lastName;
   }
   if (!profile?.display_name?.trim() && displayName) {
     patch.display_name = displayName;

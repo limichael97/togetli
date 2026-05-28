@@ -7,28 +7,65 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../supabaseClient";
 import { useProfile } from "../../lib/useProfile";
-import { upsertMyProfile } from "../../lib/profile";
+import { getProfileDisplayName, upsertMyProfile } from "../../lib/profile";
 import { useAuthStore } from "../../store/useAuthStore";
 import { colors, radius, spacing, typography } from "../../lib/theme";
 
+type EditableProfile = {
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+};
+
+function splitFullName(value: string | null | undefined) {
+  const parts = value?.trim().split(/\s+/).filter(Boolean) ?? [];
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
+function getProfileFirstName(profile: EditableProfile | null | undefined) {
+  return profile?.first_name?.trim() || splitFullName(profile?.full_name).firstName;
+}
+
+function getProfileLastName(profile: EditableProfile | null | undefined) {
+  return profile?.last_name?.trim() || splitFullName(profile?.full_name).lastName;
+}
+
 export default function ProfileScreen() {
   const userId = useAuthStore((s) => s.userId);
+  const { tabReset } = useLocalSearchParams<{ tabReset?: string }>();
   const { profile, refresh } = useProfile();
   const [signingOut, setSigningOut] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [homeAirport, setHomeAirport] = useState("");
   const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    setDisplayName(profile?.display_name?.trim() || profile?.full_name?.trim() || "");
+    setDisplayName(getProfileDisplayName(profile));
+    setFirstName(getProfileFirstName(profile));
+    setLastName(getProfileLastName(profile));
     setHomeAirport(profile?.home_airport?.trim() || "");
   }, [profile]);
+
+  useEffect(() => {
+    if (!tabReset) return;
+
+    setEditing(false);
+    setDisplayName(getProfileDisplayName(profile));
+    setFirstName(getProfileFirstName(profile));
+    setLastName(getProfileLastName(profile));
+    setHomeAirport(profile?.home_airport?.trim() || "");
+  }, [profile, tabReset]);
 
   useEffect(() => {
     let mounted = true;
@@ -54,24 +91,48 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  const name =
-    profile?.display_name?.trim() ||
+  const name = getProfileDisplayName(profile);
+  const fullName =
     profile?.full_name?.trim() ||
-    "Your profile";
-  const fullName = profile?.full_name?.trim() || "Not set yet";
+    [profile?.first_name?.trim(), profile?.last_name?.trim()]
+      .filter(Boolean)
+      .join(" ") ||
+    "Not set yet";
   const emailLabel = email?.trim() || "Not available";
   const homeAirportLabel = profile?.home_airport?.trim() || "Not set yet";
-  const canSave = !!userId && !saving;
+  const trimmedDisplayName = displayName.trim();
+  const trimmedFirstName = firstName.trim();
+  const trimmedLastName = lastName.trim();
+  const canSave =
+    !!userId &&
+    !saving &&
+    !!trimmedDisplayName &&
+    !!trimmedFirstName &&
+    !!trimmedLastName;
 
   const handleSaveProfile = useCallback(async () => {
     if (!userId) return;
 
     try {
+      if (!trimmedDisplayName || !trimmedFirstName || !trimmedLastName) {
+        Alert.alert(
+          "Name required",
+          "Display name, first name, and last name are required."
+        );
+        return;
+      }
+
       setSaving(true);
-      const nextDisplayName = displayName.trim() || null;
+      const nextDisplayName = trimmedDisplayName;
+      const nextFirstName = trimmedFirstName;
+      const nextLastName = trimmedLastName;
+      const nextFullName = `${nextFirstName} ${nextLastName}`;
       const nextHomeAirport = homeAirport.trim().toUpperCase() || null;
       const { error } = await upsertMyProfile(userId, {
         display_name: nextDisplayName,
+        first_name: nextFirstName,
+        last_name: nextLastName,
+        full_name: nextFullName,
         home_airport: nextHomeAirport,
       });
       if (error) throw error;
@@ -82,12 +143,25 @@ export default function ProfileScreen() {
     } finally {
       setSaving(false);
     }
-  }, [displayName, homeAirport, refresh, userId]);
+  }, [
+    homeAirport,
+    refresh,
+    trimmedDisplayName,
+    trimmedFirstName,
+    trimmedLastName,
+    userId,
+  ]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.header}>
-        <Text style={styles.screenTitle}>Profile</Text>
+        <Text style={styles.screenTitle}>
+          {editing ? "Edit Profile" : "Profile"}
+        </Text>
         <Text style={styles.screenBody}>
           Keep the basics ready for planning trips with friends.
         </Text>
@@ -121,35 +195,31 @@ export default function ProfileScreen() {
                 style={styles.input}
               />
             </View>
-            <View style={styles.buttonRow}>
-              <Pressable
-                onPress={() => {
-                  setEditing(false);
-                  setDisplayName(profile?.display_name?.trim() || profile?.full_name?.trim() || "");
-                  setHomeAirport(profile?.home_airport?.trim() || "");
-                }}
-                disabled={saving}
-                style={({ pressed }) => [
-                  styles.secondaryActionButton,
-                  pressed && !saving ? styles.buttonPressed : null,
-                  saving ? styles.disabled : null,
-                ]}
-              >
-                <Text style={styles.secondaryActionText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleSaveProfile}
-                disabled={!canSave}
-                style={({ pressed }) => [
-                  styles.primaryActionButton,
-                  pressed && canSave ? styles.buttonPressed : null,
-                  !canSave ? styles.disabled : null,
-                ]}
-              >
-                <Text style={styles.primaryActionText}>
-                  {saving ? "Saving..." : "Save"}
-                </Text>
-              </Pressable>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>First name</Text>
+              <TextInput
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="First name"
+                placeholderTextColor={colors.textSubtle}
+                autoCapitalize="words"
+                style={styles.input}
+              />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Last name</Text>
+              <TextInput
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="Last name"
+                placeholderTextColor={colors.textSubtle}
+                autoCapitalize="words"
+                style={styles.input}
+              />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Email</Text>
+              <Text style={styles.readOnlyValue}>{emailLabel}</Text>
             </View>
           </View>
         ) : (
@@ -194,23 +264,43 @@ export default function ProfileScreen() {
         )}
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.eyebrow}>App</Text>
-        <Text style={styles.body}>Manage your session on this device.</Text>
-        <Pressable
-          onPress={handleSignOut}
-          disabled={signingOut}
-          style={({ pressed }) => [
-            styles.signOutButton,
-            pressed && !signingOut ? styles.signOutButtonPressed : null,
-            signingOut ? styles.signOutButtonDisabled : null,
-          ]}
-        >
-          <Text style={styles.signOutButtonText}>
-            {signingOut ? "Signing out..." : "Sign out"}
-          </Text>
-        </Pressable>
-      </View>
+      {!editing ? (
+        <View style={styles.card}>
+          <Text style={styles.eyebrow}>App</Text>
+          <Text style={styles.body}>Manage your session on this device.</Text>
+          <Pressable
+            onPress={handleSignOut}
+            disabled={signingOut}
+            style={({ pressed }) => [
+              styles.signOutButton,
+              pressed && !signingOut ? styles.signOutButtonPressed : null,
+              signingOut ? styles.signOutButtonDisabled : null,
+            ]}
+          >
+            <Text style={styles.signOutButtonText}>
+              {signingOut ? "Signing out..." : "Sign out"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {editing ? (
+        <View style={styles.bottomActionRow}>
+          <Pressable
+            onPress={handleSaveProfile}
+            disabled={!canSave}
+            style={({ pressed }) => [
+              styles.primaryActionButton,
+              pressed && canSave ? styles.buttonPressed : null,
+              !canSave ? styles.disabled : null,
+            ]}
+          >
+            <Text style={styles.primaryActionText}>
+              {saving ? "Saving..." : "Save Changes"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -223,7 +313,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 112,
     gap: spacing.lg,
   },
   header: {
@@ -301,9 +391,19 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
-  buttonRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
+  readOnlyValue: {
+    minHeight: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 13,
+    color: colors.textMuted,
+    fontSize: 16,
+  },
+  bottomActionRow: {
+    paddingBottom: spacing.lg,
   },
   secondaryButton: {
     paddingHorizontal: spacing.md,
@@ -328,21 +428,6 @@ const styles = StyleSheet.create({
   },
   primaryActionText: {
     color: colors.primaryText,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  secondaryActionButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryActionText: {
-    color: colors.text,
     fontSize: 15,
     fontWeight: "700",
   },

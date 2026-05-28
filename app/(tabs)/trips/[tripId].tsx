@@ -37,6 +37,7 @@ import {
   hasAvailabilityPollResponse,
   hasStayPollResponse,
   listPollResponseDetails,
+  markTripPlanned,
   parseStayPollDefinition,
   type StayPollDefinition,
 } from "../../../lib/polls";
@@ -50,7 +51,13 @@ import {
 import { supabase } from "../../../supabaseClient";
 import { AppInput } from "../../../components/ui/AppInput";
 import { AppButton } from "../../../components/ui/AppButton";
+import {
+  DateRangePicker,
+  isValidDateInput,
+  parseIsoDate,
+} from "../../../components/ui/DateRangePicker";
 import { getTripAwareCopy } from "../../../lib/tripCopy";
+import { colors } from "../../../lib/theme";
 
 const ROLE_LABELS: Record<TripRole, string> = {
   creator: "Creator",
@@ -63,6 +70,20 @@ const STAGE_LABELS: Record<TripStage, string> = {
   polling: "Live",
   finalized: "Finalized",
 };
+
+function formatTripDate(value: string) {
+  const date = parseIsoDate(value);
+  if (!date) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function formatTripDateRange(start: string | null, end: string | null) {
+  if (!start || !end) return "Not set yet";
+  return `${formatTripDate(start)} - ${formatTripDate(end)}`;
+}
 
 function getInitials(name: string) {
   const parts = name
@@ -80,6 +101,9 @@ export default function TripDetailScreen() {
   const tripId = Array.isArray(params.tripId)
     ? params.tripId[0]
     : params.tripId;
+  const openDatesParam = Array.isArray(params.openDates)
+    ? params.openDates[0]
+    : params.openDates;
   const router = useRouter();
   const userId = useAuthStore((s) => s.userId);
 
@@ -110,6 +134,15 @@ export default function TripDetailScreen() {
   });
   const [changeTypeModalOpen, setChangeTypeModalOpen] = useState(false);
   const [savingTripType, setSavingTripType] = useState(false);
+  const [dateModalOpen, setDateModalOpen] = useState(false);
+  const [dateStartDraft, setDateStartDraft] = useState("");
+  const [dateEndDraft, setDateEndDraft] = useState("");
+  const [dateDraftError, setDateDraftError] = useState<string | null>(null);
+  const [savingDates, setSavingDates] = useState(false);
+  const [removingDates, setRemovingDates] = useState(false);
+  const [handledOpenDatesParam, setHandledOpenDatesParam] = useState<
+    string | null
+  >(null);
   const menuButtonRef = useRef<View | null>(null);
 
   useEffect(() => {
@@ -198,6 +231,21 @@ export default function TripDetailScreen() {
       active = false;
     };
   }, [inviteModalOpen, inviteRole]);
+
+  useEffect(() => {
+    if (!data || !openDatesParam || handledOpenDatesParam === openDatesParam) {
+      return;
+    }
+
+    const member = data.members.find((m) => m.user_id === userId);
+    if (member?.role === "creator" || member?.role === "planner") {
+      setDateStartDraft(data.trip.final_start_date ?? "");
+      setDateEndDraft(data.trip.final_end_date ?? "");
+      setDateDraftError(null);
+      setDateModalOpen(true);
+    }
+    setHandledOpenDatesParam(openDatesParam);
+  }, [data, handledOpenDatesParam, openDatesParam, userId]);
 
   const getInviteLink = async (role: Exclude<TripRole, "creator">) => {
     if (!tripId) throw new Error("Missing trip id.");
@@ -363,6 +411,12 @@ export default function TripDetailScreen() {
   const isPollMode = isPollTrip(trip.mode);
   const isPlannedMode = !isPollMode;
   const isFinalized = stage === "finalized";
+  const hasFinalDates = !!trip.final_start_date && !!trip.final_end_date;
+  const hasAnyFinalDate = !!trip.final_start_date || !!trip.final_end_date;
+  const canSaveDirectDates =
+    isValidDateInput(dateStartDraft) &&
+    isValidDateInput(dateEndDraft) &&
+    dateEndDraft >= dateStartDraft;
   const draftReady = stage === "draft" && isTripReady(data);
   const plannerCount = members.filter((m) => m.role === "planner").length;
   const guestCount = members.filter((m) => m.role === "guest").length;
@@ -386,6 +440,13 @@ export default function TripDetailScreen() {
   const hasInviteLinks = pendingInvites.length > 0;
   const shouldFocusInvite =
     canInvite && !isFinalized && (members.length < 2 || !hasInviteLinks);
+
+  const openDateModal = () => {
+    setDateStartDraft(trip.final_start_date ?? "");
+    setDateEndDraft(trip.final_end_date ?? "");
+    setDateDraftError(null);
+    setDateModalOpen(true);
+  };
 
   const primaryAction = (() => {
     if (shouldFocusInvite) {
@@ -422,6 +483,17 @@ export default function TripDetailScreen() {
     }
 
     if (stage === "draft") {
+      if (!hasFinalDates && data.dateOptions.length === 0) {
+        return {
+          label: canManageTrip ? "Set Dates" : "Dates Not Set",
+          description: canManageTrip
+            ? "If the dates are known, set them directly. If not, create a date poll for the group."
+            : "A planner is still choosing whether to set dates or create a date poll.",
+          onPress: canManageTrip ? openDateModal : undefined,
+          disabled: !canManageTrip,
+        };
+      }
+
       return {
         label: draftReady ? "Review Date Poll" : "Set Up Date Poll",
         description: draftReady
@@ -508,7 +580,7 @@ export default function TripDetailScreen() {
   const allEligibleAvailabilityVotersVoted =
     eligibleVotingMemberCount > 0 && availabilityWaitingCount === 0;
   const datePollExists =
-    isFinalized || stage !== "draft" || data.dateOptions.length > 0;
+    data.dateOptions.length > 0 || (isPollMode && stage !== "draft");
   const availabilityPollStatus =
     isFinalized
       ? "Dates locked"
@@ -606,6 +678,7 @@ export default function TripDetailScreen() {
         router.push(`/(tabs)/trips/${tripId}/poll-results?pollKind=stay`),
     };
   })();
+  const shouldShowPollsSection = !hasFinalDates || datePollExists || stayPollExists;
 
   const metaLabel = tripTypeLabel;
   const memberPreviewNames = members
@@ -711,6 +784,116 @@ export default function TripDetailScreen() {
     }
   };
 
+  const handleSaveTripDates = async () => {
+    if (!tripId || !canManageTrip || savingDates || removingDates) return;
+
+    const start = dateStartDraft.trim();
+    const end = dateEndDraft.trim();
+
+    if (!start || !end) {
+      setDateDraftError("Enter both start and end dates.");
+      return;
+    }
+    if (!isValidDateInput(start) || !isValidDateInput(end)) {
+      setDateDraftError("Use YYYY-MM-DD format for both dates.");
+      return;
+    }
+    if (end < start) {
+      setDateDraftError("End date cannot be earlier than start date.");
+      return;
+    }
+
+    try {
+      setSavingDates(true);
+      setDateDraftError(null);
+      await markTripPlanned({
+        tripId,
+        finalStartDate: start,
+        finalEndDate: end,
+      });
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              trip: {
+                ...current.trip,
+                mode: "planned",
+                status: "finalized",
+                final_start_date: start,
+                final_end_date: end,
+                poll_sent_at: null,
+              },
+            }
+          : current
+      );
+      setDateModalOpen(false);
+    } catch (e: any) {
+      Alert.alert("Could not save dates", e?.message ?? String(e));
+    } finally {
+      setSavingDates(false);
+    }
+  };
+
+  const clearTripDates = async () => {
+    if (!tripId || !canManageTrip || savingDates || removingDates) return;
+
+    try {
+      setRemovingDates(true);
+      const nextStatus = trip.poll_sent_at ? "polling" : "draft";
+      const { error } = await supabase
+        .from("trips")
+        .update({
+          mode: "poll",
+          final_start_date: null,
+          final_end_date: null,
+          status: nextStatus,
+        })
+        .eq("id", tripId);
+
+      if (error) throw error;
+
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              trip: {
+                ...current.trip,
+                mode: "poll",
+                status: nextStatus,
+                final_start_date: null,
+                final_end_date: null,
+              },
+            }
+          : current
+      );
+      setDateStartDraft("");
+      setDateEndDraft("");
+      setDateDraftError(null);
+      setDateModalOpen(false);
+    } catch (e: any) {
+      Alert.alert("Could not remove dates", e?.message ?? String(e));
+    } finally {
+      setRemovingDates(false);
+    }
+  };
+
+  const handleRemoveTripDates = () => {
+    if (!hasAnyFinalDate || savingDates || removingDates) return;
+
+    Alert.alert(
+      "Remove trip dates?",
+      "This will clear the finalized trip dates so you can choose dates later or create a date poll.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove dates",
+          style: "destructive",
+          onPress: clearTripDates,
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView
       contentContainerStyle={styles.container}
@@ -741,6 +924,28 @@ export default function TripDetailScreen() {
           <View style={styles.statusBadge}>
             <Text style={styles.statusBadgeText}>{STAGE_LABELS[stage]}</Text>
           </View>
+        </View>
+
+        <View style={styles.tripDatesRow}>
+          <View style={styles.tripDatesTextBlock}>
+            <Text style={styles.tripDatesLabel}>Dates</Text>
+            <Text style={styles.tripDatesValue}>
+              {formatTripDateRange(trip.final_start_date, trip.final_end_date)}
+            </Text>
+          </View>
+          {canManageTrip ? (
+            <Pressable
+              onPress={openDateModal}
+              style={({ pressed }) => [
+                styles.inlineAction,
+                pressed ? styles.inlineActionPressed : null,
+              ]}
+            >
+              <Text style={styles.inlineActionText}>
+                {trip.final_start_date && trip.final_end_date ? "Edit" : "Set dates"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <Pressable
@@ -804,109 +1009,111 @@ export default function TripDetailScreen() {
         )}
       </View>
 
-      <View style={styles.sectionBlock}>
-        <Text style={styles.sectionHeading}>Polls</Text>
+      {shouldShowPollsSection ? (
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionHeading}>Polls</Text>
 
-        {!datePollExists ? (
-          <View style={styles.pollCard}>
-            <View style={styles.pollCardTextBlock}>
-              <Text style={styles.cardTitle}>Date Poll</Text>
-              <Text style={styles.cardBody}>
-                Decide when the trip should happen.
-              </Text>
-            </View>
-            {canManageTrip ? (
-              <Pressable
-                onPress={() => router.push(`/(tabs)/trips/${tripId}/setup`)}
-                style={({ pressed }) => [
-                  styles.cardButton,
-                  styles.fullWidthButton,
-                  pressed ? styles.cardButtonPressed : null,
-                ]}
-              >
-                <Text style={styles.cardButtonText}>Create Date Poll</Text>
-              </Pressable>
-            ) : (
-              <Text style={styles.cardHintText}>
-                A planner can create the date poll.
-              </Text>
-            )}
-          </View>
-        ) : (
-          <View style={styles.pollCard}>
-            <View style={styles.pollCardHeader}>
+          {!hasFinalDates && !datePollExists ? (
+            <View style={styles.pollCard}>
               <View style={styles.pollCardTextBlock}>
                 <Text style={styles.cardTitle}>Date Poll</Text>
-                <Text style={styles.cardBody}>{availabilityPollDescription}</Text>
+                <Text style={styles.cardBody}>
+                  Decide when the trip should happen.
+                </Text>
               </View>
-              <View style={styles.pollStateBadge}>
-                <Text style={styles.pollStateBadgeText}>{availabilityPollStatus}</Text>
-              </View>
-            </View>
-            {availabilityPollAction ? (
-              <Pressable
-                onPress={availabilityPollAction.onPress}
-                style={({ pressed }) => [
-                  styles.cardButton,
-                  styles.fullWidthButton,
-                  pressed ? styles.cardButtonPressed : null,
-                ]}
-              >
-                <Text style={styles.cardButtonText}>{availabilityPollAction.label}</Text>
-              </Pressable>
-            ) : (
-              <Text style={styles.cardHintText}>No action needed right now.</Text>
-            )}
-          </View>
-        )}
-
-        {stayPollExists ? (
-          <View style={styles.pollCard}>
-            <View style={styles.pollCardHeader}>
-              <View style={styles.pollCardTextBlock}>
-                <Text style={styles.cardTitle}>Stay Poll</Text>
-                <Text style={styles.cardBody}>{stayPollDescription}</Text>
-                {stayPollIsFinalized ? (
-                  <Text style={styles.cardHintText}>
-                    The group has completed the stay poll and locked in its stay choice.
-                  </Text>
-                ) : null}
-              </View>
-              <View style={styles.pollStateBadge}>
-                <Text style={styles.pollStateBadgeText}>{stayPollStatus}</Text>
-              </View>
-            </View>
-            {stayPollAction ? (
-              <View style={styles.cardActionStack}>
+              {canManageTrip ? (
                 <Pressable
-                  onPress={stayPollAction.onPress}
+                  onPress={() => router.push(`/(tabs)/trips/${tripId}/setup`)}
                   style={({ pressed }) => [
                     styles.cardButton,
                     styles.fullWidthButton,
                     pressed ? styles.cardButtonPressed : null,
                   ]}
                 >
-                  <Text style={styles.cardButtonText}>{stayPollAction.label}</Text>
+                  <Text style={styles.cardButtonText}>Create Date Poll</Text>
                 </Pressable>
-                {stayPollIsFinalized && finalizedStayOption?.link ? (
+              ) : (
+                <Text style={styles.cardHintText}>
+                  A planner can create the date poll.
+                </Text>
+              )}
+            </View>
+          ) : datePollExists ? (
+            <View style={styles.pollCard}>
+              <View style={styles.pollCardHeader}>
+                <View style={styles.pollCardTextBlock}>
+                  <Text style={styles.cardTitle}>Date Poll</Text>
+                  <Text style={styles.cardBody}>{availabilityPollDescription}</Text>
+                </View>
+                <View style={styles.pollStateBadge}>
+                  <Text style={styles.pollStateBadgeText}>{availabilityPollStatus}</Text>
+                </View>
+              </View>
+              {availabilityPollAction ? (
+                <Pressable
+                  onPress={availabilityPollAction.onPress}
+                  style={({ pressed }) => [
+                    styles.cardButton,
+                    styles.fullWidthButton,
+                    pressed ? styles.cardButtonPressed : null,
+                  ]}
+                >
+                  <Text style={styles.cardButtonText}>{availabilityPollAction.label}</Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.cardHintText}>No action needed right now.</Text>
+              )}
+            </View>
+          ) : null}
+
+          {stayPollExists ? (
+            <View style={styles.pollCard}>
+              <View style={styles.pollCardHeader}>
+                <View style={styles.pollCardTextBlock}>
+                  <Text style={styles.cardTitle}>Stay Poll</Text>
+                  <Text style={styles.cardBody}>{stayPollDescription}</Text>
+                  {stayPollIsFinalized ? (
+                    <Text style={styles.cardHintText}>
+                      The group has completed the stay poll and locked in its stay choice.
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={styles.pollStateBadge}>
+                  <Text style={styles.pollStateBadgeText}>{stayPollStatus}</Text>
+                </View>
+              </View>
+              {stayPollAction ? (
+                <View style={styles.cardActionStack}>
                   <Pressable
-                    onPress={() => Linking.openURL(finalizedStayOption.link!)}
+                    onPress={stayPollAction.onPress}
                     style={({ pressed }) => [
-                      styles.secondaryCardButton,
+                      styles.cardButton,
                       styles.fullWidthButton,
                       pressed ? styles.cardButtonPressed : null,
                     ]}
                   >
-                    <Text style={styles.secondaryCardButtonText}>View Listing</Text>
+                    <Text style={styles.cardButtonText}>{stayPollAction.label}</Text>
                   </Pressable>
-                ) : null}
-              </View>
-            ) : (
-              <Text style={styles.cardHintText}>No action needed right now.</Text>
-            )}
-          </View>
-        ) : null}
-      </View>
+                  {stayPollIsFinalized && finalizedStayOption?.link ? (
+                    <Pressable
+                      onPress={() => Linking.openURL(finalizedStayOption.link!)}
+                      style={({ pressed }) => [
+                        styles.secondaryCardButton,
+                        styles.fullWidthButton,
+                        pressed ? styles.cardButtonPressed : null,
+                      ]}
+                    >
+                      <Text style={styles.secondaryCardButtonText}>View Listing</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : (
+                <Text style={styles.cardHintText}>No action needed right now.</Text>
+              )}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionHeading}>Shared Ideas</Text>
@@ -926,6 +1133,86 @@ export default function TripDetailScreen() {
           </Pressable>
         </View>
       </View>
+
+      <Modal
+        visible={dateModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() =>
+          !savingDates && !removingDates ? setDateModalOpen(false) : undefined
+        }
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() =>
+            !savingDates && !removingDates ? setDateModalOpen(false) : undefined
+          }
+        >
+          <Pressable
+            style={[styles.editSheet, styles.dateSheet]}
+            onPress={() => {}}
+          >
+            <ScrollView
+              contentContainerStyle={styles.dateSheetContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.inviteSheetTitle}>Trip Dates</Text>
+              <Text style={styles.modalHelperText}>
+                Set the actual trip dates for this trip.
+              </Text>
+              <DateRangePicker
+                startDate={dateStartDraft}
+                endDate={dateEndDraft}
+                onChangeStartDate={(value) => {
+                  setDateStartDraft(value);
+                  setDateDraftError(null);
+                }}
+                onChangeEndDate={(value) => {
+                  setDateEndDraft(value);
+                  setDateDraftError(null);
+                }}
+              />
+              {dateDraftError ? (
+                <Text style={styles.modalErrorText}>{dateDraftError}</Text>
+              ) : null}
+              <AppButton
+                label={savingDates ? "Saving..." : "Save dates"}
+                onPress={handleSaveTripDates}
+                disabled={savingDates || removingDates || !canSaveDirectDates}
+              />
+              {hasAnyFinalDate ? (
+                <Pressable
+                  onPress={handleRemoveTripDates}
+                  disabled={savingDates || removingDates}
+                  style={({ pressed }) => [
+                    styles.removeDatesButton,
+                    savingDates || removingDates ? styles.cardButtonDisabled : null,
+                    pressed && !savingDates && !removingDates
+                      ? styles.cardButtonPressed
+                      : null,
+                  ]}
+                >
+                  <Text style={styles.removeDatesButtonText}>
+                    {removingDates ? "Removing..." : "Remove dates"}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => setDateModalOpen(false)}
+                disabled={savingDates || removingDates}
+                style={({ pressed }) => [
+                  styles.inviteCloseButton,
+                  pressed && !savingDates && !removingDates
+                    ? styles.cardButtonPressed
+                    : null,
+                ]}
+              >
+                <Text style={styles.inviteCloseButtonText}>Cancel</Text>
+              </Pressable>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={inviteModalOpen && showInviteSection}
@@ -1251,7 +1538,7 @@ const styles = StyleSheet.create({
   container: {
     padding: 18,
     paddingTop: 14,
-    paddingBottom: 28,
+    paddingBottom: 112,
     gap: 14,
   },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
@@ -1261,9 +1548,14 @@ const styles = StyleSheet.create({
   heroCard: {
     padding: 16,
     borderRadius: 20,
-    backgroundColor: "#f8f8f8",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#ececec",
+    borderColor: colors.border,
+    shadowColor: colors.primary,
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    shadowOffset: { width: 4, height: 4 },
+    elevation: 2,
   },
   titleRow: {
     flexDirection: "row",
@@ -1292,16 +1584,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: "#111",
+    backgroundColor: colors.accentPrimary,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   roleBadgeText: { color: "#fff", fontWeight: "600", fontSize: 12 },
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: "#ececec",
+    backgroundColor: colors.primary,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
   },
-  statusBadgeText: { color: "#333", fontWeight: "600", fontSize: 12 },
+  statusBadgeText: { color: colors.accentText, fontWeight: "700", fontSize: 12 },
+  tripDatesRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#ededed",
+    borderRadius: 16,
+    padding: 11,
+    backgroundColor: "#fff",
+  },
+  tripDatesTextBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  tripDatesLabel: {
+    color: "#555",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  tripDatesValue: {
+    color: "#111",
+    fontSize: 15,
+    fontWeight: "700",
+  },
   memberPreviewButton: {
     marginTop: 12,
     flexDirection: "row",
@@ -1324,7 +1646,9 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 999,
-    backgroundColor: "#111",
+    backgroundColor: colors.accentPrimary,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1399,10 +1723,17 @@ const styles = StyleSheet.create({
   primaryCard: {
     padding: 16,
     borderRadius: 18,
-    backgroundColor: "#111",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    shadowColor: colors.accentPrimary,
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    shadowOffset: { width: -4, height: 4 },
+    elevation: 2,
   },
   primaryCardEyebrow: {
-    color: "rgba(255,255,255,0.7)",
+    color: colors.accentText,
     fontSize: 12,
     fontWeight: "700",
     textTransform: "uppercase",
@@ -1410,24 +1741,26 @@ const styles = StyleSheet.create({
   },
   primaryCardTitle: {
     marginTop: 6,
-    color: "#fff",
+    color: colors.ink,
     fontSize: 21,
     fontWeight: "700",
   },
   primaryCardBody: {
     marginTop: 8,
-    color: "rgba(255,255,255,0.82)",
+    color: colors.inkSoft,
     fontSize: 14,
     lineHeight: 20,
   },
   primaryCtaButton: {
     marginTop: 14,
-    backgroundColor: "#fff",
+    backgroundColor: colors.primary,
     paddingVertical: 12,
     borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   primaryCtaButtonText: {
-    color: "#111",
+    color: colors.primaryText,
     textAlign: "center",
     fontWeight: "700",
     fontSize: 15,
@@ -1436,7 +1769,29 @@ const styles = StyleSheet.create({
   primaryCtaButtonDisabled: { opacity: 0.45 },
   primaryCardHint: {
     marginTop: 14,
-    color: "rgba(255,255,255,0.7)",
+    color: colors.textMuted,
+  },
+  modalErrorText: {
+    color: colors.danger,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: -8,
+    marginBottom: 12,
+  },
+  removeDatesButton: {
+    minHeight: 46,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  removeDatesButtonText: {
+    color: colors.danger,
+    fontSize: 15,
+    fontWeight: "700",
   },
 
   sectionBlock: {
@@ -1445,23 +1800,28 @@ const styles = StyleSheet.create({
   sectionHeading: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#111",
+    color: colors.text,
   },
   card: {
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#ececec",
-    backgroundColor: "#fff",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     gap: 10,
   },
   pollCard: {
-    padding: 14,
-    borderRadius: 16,
+    padding: 15,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#ececec",
-    backgroundColor: "#fff",
-    gap: 10,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: 12,
+    shadowColor: colors.primary,
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    shadowOffset: { width: 3, height: 3 },
+    elevation: 2,
   },
   pollCardHeader: {
     flexDirection: "row",
@@ -1477,25 +1837,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: colors.accentPrimary,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
   },
   pollStateBadgeText: {
-    color: "#374151",
+    color: colors.accentText,
     fontSize: 12,
     fontWeight: "700",
   },
   cardTitle: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#111",
+    color: colors.text,
   },
   cardBody: {
-    color: "#555",
+    color: colors.textMuted,
     fontSize: 14,
     lineHeight: 19,
   },
   cardHintText: {
-    color: "#666",
+    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
   },
@@ -1518,14 +1880,16 @@ const styles = StyleSheet.create({
 
   cardButton: {
     marginTop: 2,
-    backgroundColor: "#111",
+    backgroundColor: colors.primary,
     paddingVertical: 12,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   cardButtonText: {
-    color: "#fff",
+    color: colors.primaryText,
     textAlign: "center",
     fontWeight: "600",
     fontSize: 15,
@@ -1536,8 +1900,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#e5e5e5",
-    backgroundColor: "#fff",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1579,6 +1943,12 @@ const styles = StyleSheet.create({
     padding: 20,
     width: "100%",
     maxWidth: 420,
+  },
+  dateSheet: {
+    maxHeight: "90%",
+  },
+  dateSheetContent: {
+    paddingBottom: 2,
   },
   menuSheet: {
     position: "absolute",

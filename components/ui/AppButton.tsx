@@ -41,9 +41,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     shadowColor: colors.text,
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 0,
+    shadowOffset: { width: 3, height: 4 },
     elevation: 3,
   },
   buttonDisabled: {

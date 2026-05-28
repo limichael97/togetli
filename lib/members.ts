@@ -22,7 +22,7 @@ export async function listTripMembers(tripId: string) {
 
   const { data: profiles, error: profileError } = await supabase
     .from("profiles")
-    .select("id, full_name, display_name, avatar_url")
+    .select("id, full_name, display_name, first_name, last_name, avatar_url")
     .in("id", userIds);
 
   if (profileError) throw profileError;

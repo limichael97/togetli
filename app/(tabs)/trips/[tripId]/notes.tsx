@@ -16,7 +16,11 @@ import { Screen } from "../../../../components/ui/Screen";
 import { AppInput } from "../../../../components/ui/AppInput";
 import { AppButton } from "../../../../components/ui/AppButton";
 import { colors, radius, spacing, typography } from "../../../../lib/theme";
-import { getTripOverview, type TripType } from "../../../../lib/trips";
+import {
+  getTripMemberDisplayName,
+  getTripOverview,
+  type TripType,
+} from "../../../../lib/trips";
 import { parseStayPollDefinition } from "../../../../lib/polls";
 import { supabase } from "../../../../supabaseClient";
 import { getTripAwareCopy } from "../../../../lib/tripCopy";
@@ -510,9 +514,7 @@ export default function TripNotesScreen() {
         Object.fromEntries(
           overview.members.map((row) => [
             row.user_id,
-            row.profiles?.display_name ||
-              row.profiles?.full_name ||
-              `Member ${row.user_id.slice(0, 6)}`,
+            getTripMemberDisplayName(row),
           ])
         )
       );

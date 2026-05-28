@@ -1,5 +1,6 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, typography } from "../../lib/theme";
 
 type ScreenProps = PropsWithChildren<{
@@ -7,6 +8,7 @@ type ScreenProps = PropsWithChildren<{
   subtitle?: string;
   footer?: ReactNode;
   topInset?: "default" | "none" | "sm";
+  safeAreaTop?: boolean;
 }>;
 
 export function Screen({
@@ -15,16 +17,25 @@ export function Screen({
   children,
   footer,
   topInset = "default",
+  safeAreaTop = false,
 }: ScreenProps) {
+  const insets = useSafeAreaInsets();
+  const safeTop = safeAreaTop ? insets.top : 0;
+  const topPadding =
+    topInset === "none"
+      ? 0
+      : safeTop +
+        (topInset === "sm"
+          ? safeAreaTop
+            ? spacing.lg
+            : spacing.sm
+          : spacing.screenTop);
+
   return (
     <View
       style={[
         styles.container,
-        topInset === "none"
-          ? styles.containerNoTopInset
-          : topInset === "sm"
-            ? styles.containerSmallTopInset
-            : null,
+        { paddingTop: topPadding },
       ]}
     >
       {title ? <Text style={styles.title}>{title}</Text> : null}
@@ -40,13 +51,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     paddingHorizontal: 22,
-    paddingTop: spacing.screenTop,
-  },
-  containerNoTopInset: {
-    paddingTop: 0,
-  },
-  containerSmallTopInset: {
-    paddingTop: spacing.sm,
   },
   title: {
     ...typography.title,

@@ -2,6 +2,7 @@
 import { supabase } from "../supabaseClient";
 import type { Database } from "../types/database.types";
 import type { CustomPollQuestion } from "../utils/polls";
+import { getProfileDisplayName } from "./profile";
 
 export type TripType = Database["public"]["Enums"]["trip_type"];
 
@@ -255,6 +256,8 @@ export type TripMemberRow = {
     id: string;
     full_name: string | null;
     display_name: string | null;
+    first_name: string | null;
+    last_name: string | null;
     avatar_url: string | null;
     email?: string | null;
   } | null;
@@ -294,7 +297,7 @@ export async function attachTripMemberProfiles(
 
   const { data: profiles, error: profileError } = await supabase
     .from("profiles")
-    .select("id, full_name, display_name, avatar_url")
+    .select("id, full_name, display_name, first_name, last_name, avatar_url")
     .in("id", userIds);
 
   if (profileError) throw profileError;
@@ -310,17 +313,7 @@ export async function attachTripMemberProfiles(
 }
 
 export function getTripMemberDisplayName(member: TripMemberRow): string {
-  const displayName = member.profiles?.display_name?.trim();
-  if (displayName) return displayName;
-
-  const fullName = member.profiles?.full_name?.trim();
-  if (fullName) return fullName;
-
-  const invitedName = member.invited_name?.trim();
-  if (invitedName) return invitedName;
-
-  if (member.role === "creator") return "Creator";
-  return "Group member";
+  return getProfileDisplayName(member.profiles, member.invited_email);
 }
 
 export type TripDateOptionRow = {

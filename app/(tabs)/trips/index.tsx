@@ -19,17 +19,21 @@ import {
 import { supabase } from "../../../supabaseClient";
 import { getTripTypeLabel } from "../../../lib/trips";
 import { useProfile } from "../../../lib/useProfile";
+import { getProfileDisplayName } from "../../../lib/profile";
 import { colors, radius } from "../../../lib/theme";
 
 function formatTripSubtitle(t: TripRow) {
-  const statusLabel =
-    t.status === "polling"
-      ? "Planning"
-      : t.status === "finalized"
-        ? "Finalized"
-        : "Planning";
+  const statusLabel = isTripLifecycleFinalized(t) ? "Finalized" : "Planning";
 
   return `${statusLabel} • ${getTripTypeLabel(t.type)}`;
+}
+
+function isTripLifecycleFinalized(t: TripRow) {
+  return t.status === "complete" || t.status === "completed";
+}
+
+function formatTripStatusBadge(t: TripRow) {
+  return isTripLifecycleFinalized(t) ? "Final" : "Plan";
 }
 
 function formatTripDateStatus(t: TripRow) {
@@ -197,7 +201,7 @@ export default function TripsListScreen() {
     }, [authLoading, load])
   );
 
-  const profileName = profile?.display_name?.trim() || profile?.full_name?.trim() || null;
+  const profileName = profile ? getProfileDisplayName(profile) : null;
   const firstName = useMemo(() => getFirstName(profileName), [profileName]);
 
   // If auth is still initializing, show spinner
@@ -262,11 +266,24 @@ export default function TripsListScreen() {
       }
       renderItem={({ item }) => (
         <Pressable
-          style={styles.tripCard}
+          style={({ pressed }) => [
+            styles.tripCard,
+            pressed ? styles.tripCardPressed : null,
+          ]}
           onPress={() => router.push(`/(tabs)/trips/${item.id}`)}
         >
-          <Text style={styles.tripName}>{item.title ?? "Untitled Trip"}</Text>
-          <Text style={styles.tripDates}>{formatTripSubtitle(item)}</Text>
+          <View style={styles.tripAccentStrip} />
+          <View style={styles.tripHeaderRow}>
+            <View style={styles.tripTitleBlock}>
+              <Text style={styles.tripName}>{item.title ?? "Untitled Trip"}</Text>
+              <Text style={styles.tripDates}>{formatTripSubtitle(item)}</Text>
+            </View>
+            <View style={styles.tripStatusPill}>
+              <Text style={styles.tripStatusPillText}>
+                {formatTripStatusBadge(item)}
+              </Text>
+            </View>
+          </View>
           <Text style={styles.tripDateStatus}>{formatTripDateStatus(item)}</Text>
 
           {(() => {
@@ -332,7 +349,7 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingHorizontal: 22,
     paddingTop: 22,
-    paddingBottom: 28,
+    paddingBottom: 112,
   },
   header: {
     marginBottom: 20,
@@ -341,10 +358,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   title: {
-    fontSize: 26,
-    fontWeight: "700",
+    fontSize: 28,
+    fontWeight: "800",
     color: colors.text,
-    letterSpacing: -0.3,
   },
   subtitle: {
     fontSize: 14,
@@ -353,38 +369,76 @@ const styles = StyleSheet.create({
   tripCard: {
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.accentBorder,
     padding: 18,
     backgroundColor: colors.surface,
     gap: 11,
-    shadowColor: colors.text,
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    shadowColor: colors.accentPrimary,
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    shadowOffset: { width: -4, height: 4 },
     elevation: 3,
+    overflow: "hidden",
+  },
+  tripCardPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.995 }],
+  },
+  tripAccentStrip: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 7,
+    backgroundColor: colors.primary,
+  },
+  tripHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingTop: 2,
+  },
+  tripTitleBlock: {
+    flex: 1,
+    gap: 5,
   },
   tripName: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 20,
+    fontWeight: "800",
     color: colors.text,
-    letterSpacing: -0.1,
+    letterSpacing: -0.2,
   },
   tripDates: {
-    marginTop: 2,
     fontSize: 14,
     color: colors.textMuted,
     fontWeight: "600",
   },
+  tripStatusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
+  },
+  tripStatusPillText: {
+    color: colors.accentText,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   tripDateStatus: {
     fontSize: 13,
-    color: colors.textSubtle,
-    marginTop: -4,
+    color: colors.accentText,
+    fontWeight: "600",
   },
   pollSummaryCard: {
-    marginTop: 2,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    marginTop: 4,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
     gap: 8,
   },
   pollSummaryTitle: {
@@ -420,12 +474,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: colors.accentSoft,
+    backgroundColor: colors.accentPrimary,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
   },
   needsVoteBadgeText: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.text,
+    color: colors.accentText,
   },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   emptyTitle: {
@@ -448,6 +504,8 @@ const styles = StyleSheet.create({
     marginTop: 22,
     minHeight: 48,
     backgroundColor: colors.primary,
+    borderWidth: 1,
+    borderColor: colors.border,
     paddingHorizontal: 22,
     paddingVertical: 13,
     borderRadius: radius.pill,
@@ -466,6 +524,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    shadowColor: colors.primary,
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    shadowOffset: { width: 3, height: 3 },
   },
   retryText: { fontWeight: "600" },
 });

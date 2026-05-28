@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import { router } from "expo-router";
 import { Screen } from "../../components/ui/Screen";
 import { supabase } from "../../supabaseClient";
 import { fetchMyProfile, upsertMyProfile } from "../../lib/profile";
+import { colors, radius, spacing } from "../../lib/theme";
 
 export default function OnboardingProfileScreen() {
   const guessedTz = useMemo(
@@ -19,16 +20,20 @@ export default function OnboardingProfileScreen() {
     []
   );
   const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [loading, setLoading] = useState(false);
+  const lastNameInputRef = useRef<TextInput>(null);
   const trimmedFirstName = firstName.trim();
+  const trimmedLastName = lastName.trim();
+  const canContinue = !!trimmedFirstName && !!trimmedLastName && !loading;
 
   const save = async () => {
-    const fullName = trimmedFirstName;
+    const fullName = `${trimmedFirstName} ${trimmedLastName}`;
 
-    if (!trimmedFirstName) {
+    if (!trimmedFirstName || !trimmedLastName) {
       Alert.alert(
-        "First name required",
-        "Enter your first name so your group can recognize you."
+        "Name required",
+        "Enter your first and last name so your group can recognize you."
       );
       return;
     }
@@ -46,6 +51,8 @@ export default function OnboardingProfileScreen() {
       }
 
       const payload = {
+        first_name: trimmedFirstName,
+        last_name: trimmedLastName,
         full_name: fullName,
         display_name: trimmedFirstName,
         onboarding_completed: true,
@@ -99,8 +106,11 @@ export default function OnboardingProfileScreen() {
   };
 
   return (
-    <Screen title="What should we call you?" topInset="sm">
+    <Screen title="What’s your name?" topInset="sm" safeAreaTop>
       <View style={styles.content}>
+        <Text style={styles.helperText}>
+          This helps friends recognize you in trips and polls.
+        </Text>
         <View style={styles.formBlock}>
           <Text style={styles.label}>First Name</Text>
           <TextInput
@@ -111,9 +121,28 @@ export default function OnboardingProfileScreen() {
             editable={!loading}
             autoCapitalize="words"
             autoFocus
+            returnKeyType="next"
+            onSubmitEditing={() => {
+              if (!loading) {
+                lastNameInputRef.current?.focus();
+              }
+            }}
+          />
+        </View>
+
+        <View style={styles.formBlock}>
+          <Text style={styles.label}>Last Name</Text>
+          <TextInput
+            ref={lastNameInputRef}
+            style={styles.input}
+            placeholder="Chen"
+            value={lastName}
+            onChangeText={setLastName}
+            editable={!loading}
+            autoCapitalize="words"
             returnKeyType="done"
             onSubmitEditing={() => {
-              if (!loading && trimmedFirstName) {
+              if (canContinue) {
                 void save();
               }
             }}
@@ -123,15 +152,15 @@ export default function OnboardingProfileScreen() {
         <Pressable
           style={[
             styles.button,
-            !trimmedFirstName || loading ? styles.buttonDisabled : null,
+            !canContinue ? styles.buttonDisabled : null,
           ]}
           onPress={save}
-          disabled={loading || !trimmedFirstName}
+          disabled={!canContinue}
         >
           <Text
             style={[
               styles.buttonText,
-              !trimmedFirstName || loading ? styles.buttonTextDisabled : null,
+              !canContinue ? styles.buttonTextDisabled : null,
             ]}
           >
             {loading ? "Saving..." : "Continue"}
@@ -144,36 +173,45 @@ export default function OnboardingProfileScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    paddingTop: 8,
-    gap: 24,
+    paddingTop: spacing.md,
+    gap: spacing.lg,
+  },
+  helperText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    lineHeight: 21,
   },
   formBlock: {
-    gap: 8,
+    gap: spacing.sm,
   },
-  label: { fontSize: 14, fontWeight: "600" },
+  label: { color: colors.textMuted, fontSize: 14, fontWeight: "700" },
   input: {
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 14,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.surface,
   },
   button: {
-    backgroundColor: "black",
-    borderRadius: 999,
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
     paddingVertical: 14,
   },
   buttonDisabled: {
-    backgroundColor: "#e6e6e6",
+    backgroundColor: colors.primaryMuted,
   },
   buttonText: {
-    color: "white",
+    color: colors.primaryText,
     textAlign: "center",
     fontWeight: "700",
     fontSize: 16,
   },
   buttonTextDisabled: {
-    color: "#8b8b8b",
+    color: colors.textSubtle,
   },
 });

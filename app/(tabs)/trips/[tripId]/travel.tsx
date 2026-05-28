@@ -6,6 +6,8 @@ import {
   ActivityIndicator,
   ScrollView,
   Alert,
+  Modal,
+  Pressable,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useAuthStore } from "../../../../store/useAuthStore";
@@ -13,7 +15,10 @@ import { Screen } from "../../../../components/ui/Screen";
 import { AppInput } from "../../../../components/ui/AppInput";
 import { AppButton } from "../../../../components/ui/AppButton";
 import { colors, radius, spacing, typography } from "../../../../lib/theme";
-import { getTripOverview } from "../../../../lib/trips";
+import {
+  getTripMemberDisplayName,
+  getTripOverview,
+} from "../../../../lib/trips";
 import {
   getMyTravelDetail,
   listTravelDetails,
@@ -35,6 +40,24 @@ function formatDateTime(value: string | null) {
   });
 }
 
+function hasTravelDetails(detail: TravelDetailRow | null) {
+  return !!(
+    detail?.arrival_time ||
+    detail?.departure_time ||
+    detail?.flight_number?.trim() ||
+    detail?.notes?.trim()
+  );
+}
+
+function SummaryLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryLine}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
+
 export default function TripTravelScreen() {
   const params = useLocalSearchParams();
   const tripId = Array.isArray(params.tripId) ? params.tripId[0] : params.tripId;
@@ -44,7 +67,11 @@ export default function TripTravelScreen() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [travelDetails, setTravelDetails] = useState<TravelDetailRow[]>([]);
+  const [myTravelDetail, setMyTravelDetail] = useState<TravelDetailRow | null>(
+    null
+  );
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [arrivalTime, setArrivalTime] = useState("");
   const [departureTime, setDepartureTime] = useState("");
   const [flightNumber, setFlightNumber] = useState("");
@@ -65,14 +92,13 @@ export default function TripTravelScreen() {
       const names = Object.fromEntries(
         overview.members.map((member) => [
           member.user_id,
-          member.profiles?.display_name ||
-            member.profiles?.full_name ||
-            `Member ${member.user_id.slice(0, 6)}`,
+          getTripMemberDisplayName(member),
         ])
       );
 
       setMemberNames(names);
       setTravelDetails(detailRows);
+      setMyTravelDetail(myDetail);
       setArrivalTime(myDetail?.arrival_time ?? "");
       setDepartureTime(myDetail?.departure_time ?? "");
       setFlightNumber(myDetail?.flight_number ?? "");
@@ -96,12 +122,22 @@ export default function TripTravelScreen() {
     });
   }, [travelDetails, userId]);
 
+  const userHasTravelDetails = hasTravelDetails(myTravelDetail);
+
+  const openDetailsModal = () => {
+    setArrivalTime(myTravelDetail?.arrival_time ?? "");
+    setDepartureTime(myTravelDetail?.departure_time ?? "");
+    setFlightNumber(myTravelDetail?.flight_number ?? "");
+    setNotes(myTravelDetail?.notes ?? "");
+    setDetailsModalOpen(true);
+  };
+
   const handleSave = async () => {
     if (!tripId || !userId) return;
 
     try {
       setSaving(true);
-      await upsertTravelDetail({
+      const savedDetail = await upsertTravelDetail({
         tripId,
         userId,
         arrival_time: arrivalTime || null,
@@ -109,8 +145,15 @@ export default function TripTravelScreen() {
         flight_number: flightNumber || null,
         notes: notes || null,
       });
-      await load();
-      Alert.alert("Saved", "Your travel details were updated.");
+      setMyTravelDetail(savedDetail);
+      setTravelDetails((current) => {
+        const existingIndex = current.findIndex((row) => row.id === savedDetail.id);
+        if (existingIndex === -1) {
+          return [savedDetail, ...current];
+        }
+        return current.map((row) => (row.id === savedDetail.id ? savedDetail : row));
+      });
+      setDetailsModalOpen(false);
     } catch (e: any) {
       Alert.alert("Save failed", e?.message ?? String(e));
     } finally {
@@ -158,44 +201,43 @@ export default function TripTravelScreen() {
       >
         <Text style={styles.pageTitle}>Travel Board</Text>
         <Text style={styles.pageDescription}>
-          Add your own travel details and see the group plan in one place.
+          See when everyone arrives and share your own travel plans.
         </Text>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Your travel details</Text>
-          <Text style={styles.cardHint}>
-            Use local datetime format like `2026-06-12T14:30` or `2026-06-12 14:30`.
-          </Text>
-          <AppInput
-            label="Arrival time"
-            placeholder="Example: 2026-06-12T14:30"
-            value={arrivalTime}
-            onChangeText={setArrivalTime}
-          />
-          <AppInput
-            label="Departure time"
-            placeholder="Example: 2026-06-15T09:00"
-            value={departureTime}
-            onChangeText={setDepartureTime}
-          />
-          <AppInput
-            label="Flight number"
-            placeholder="Optional"
-            value={flightNumber}
-            onChangeText={setFlightNumber}
-            autoCapitalize="characters"
-          />
-          <AppInput
-            label="Notes"
-            placeholder="Optional"
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-          />
+          {userHasTravelDetails ? (
+            <View style={styles.summaryBlock}>
+              {myTravelDetail?.arrival_time ? (
+                <SummaryLine
+                  label="Arrival"
+                  value={formatDateTime(myTravelDetail.arrival_time)}
+                />
+              ) : null}
+              {myTravelDetail?.departure_time ? (
+                <SummaryLine
+                  label="Departure"
+                  value={formatDateTime(myTravelDetail.departure_time)}
+                />
+              ) : null}
+              {myTravelDetail?.flight_number?.trim() ? (
+                <SummaryLine label="Flight" value={myTravelDetail.flight_number} />
+              ) : null}
+              {myTravelDetail?.notes?.trim() ? (
+                <SummaryLine label="Notes" value={myTravelDetail.notes} />
+              ) : null}
+            </View>
+          ) : (
+            <>
+              <Text style={styles.emptyTitle}>No travel details yet</Text>
+              <Text style={styles.cardHint}>
+                Add your arrival, departure, flight, or notes when you're ready.
+              </Text>
+            </>
+          )}
           <AppButton
-            label={saving ? "Saving..." : "Save Travel Details"}
-            onPress={handleSave}
-            disabled={saving}
+            label={userHasTravelDetails ? "Edit travel details" : "Add travel details"}
+            onPress={openDetailsModal}
           />
         </View>
 
@@ -242,13 +284,78 @@ export default function TripTravelScreen() {
           )}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={detailsModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => (!saving ? setDetailsModalOpen(false) : undefined)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => (!saving ? setDetailsModalOpen(false) : undefined)}
+        >
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
+            <ScrollView
+              contentContainerStyle={styles.modalContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.cardTitle}>Your travel details</Text>
+              <Text style={styles.cardHint}>
+                Add your arrival and departure time when you know them.
+              </Text>
+              <AppInput
+                label="Arrival time"
+                placeholder="June 12, 2:30 PM"
+                value={arrivalTime}
+                onChangeText={setArrivalTime}
+              />
+              <AppInput
+                label="Departure time"
+                placeholder="June 15, 9:00 AM"
+                value={departureTime}
+                onChangeText={setDepartureTime}
+              />
+              <AppInput
+                label="Flight number"
+                placeholder="Optional"
+                value={flightNumber}
+                onChangeText={setFlightNumber}
+                autoCapitalize="characters"
+              />
+              <AppInput
+                label="Notes"
+                placeholder="Optional"
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+              />
+              <AppButton
+                label={saving ? "Saving..." : "Save travel details"}
+                onPress={handleSave}
+                disabled={saving}
+              />
+              <Pressable
+                onPress={() => setDetailsModalOpen(false)}
+                disabled={saving}
+                style={({ pressed }) => [
+                  styles.cancelButton,
+                  pressed && !saving ? styles.cancelButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </Pressable>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  scrollContent: { paddingBottom: spacing.xxl, gap: spacing.md },
+  scrollContent: { paddingBottom: 112, gap: spacing.md },
   pageTitle: {
     fontSize: 28,
     fontWeight: "700",
@@ -282,6 +389,17 @@ const styles = StyleSheet.create({
   cardHint: {
     ...typography.bodyMuted,
   },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  summaryBlock: {
+    gap: spacing.sm,
+  },
+  summaryLine: {
+    gap: spacing.xs,
+  },
   detailBlock: {
     gap: spacing.xs,
   },
@@ -296,6 +414,41 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     ...typography.bodyMuted,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    maxHeight: "88%",
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalContent: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
+    gap: spacing.sm,
+  },
+  cancelButton: {
+    minHeight: 46,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButtonPressed: {
+    opacity: 0.75,
+  },
+  cancelButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
   },
   error: { color: "tomato" },
 });

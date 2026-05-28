@@ -6,6 +6,7 @@ export default function IdeasScreen() {
     <View style={styles.container}>
       <View style={styles.content}>
         <View style={styles.card}>
+          <View style={styles.spark} />
           <Text style={styles.title}>Ideas</Text>
           <Text style={styles.body}>
             Save stays, restaurants, activities, and links you want to use for future trips.
@@ -30,12 +31,25 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xl,
   },
   card: {
-    padding: spacing.lg,
+    padding: spacing.xl,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    gap: spacing.sm,
+    gap: spacing.md,
+    overflow: "hidden",
+    shadowColor: colors.accentPrimary,
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    shadowOffset: { width: -4, height: 4 },
+    elevation: 2,
+  },
+  spark: {
+    width: 42,
+    height: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+    marginBottom: spacing.xs,
   },
   title: {
     ...typography.title,
@@ -51,10 +65,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 7,
     borderRadius: radius.pill,
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   badgeText: {
-    color: colors.primary,
+    color: colors.accentText,
     fontSize: 13,
     fontWeight: "700",
   },

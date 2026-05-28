@@ -90,6 +90,10 @@ export default function TripPollResultsScreen() {
   const [memberCount, setMemberCount] = useState(0);
   const [canManageTrip, setCanManageTrip] = useState(false);
   const [isTripMember, setIsTripMember] = useState(false);
+  const [finalizedDateRange, setFinalizedDateRange] = useState<{
+    startDate: string;
+    endDate: string;
+  } | null>(null);
   const [finalizingDates, setFinalizingDates] = useState(false);
   const [finalizingWinner, setFinalizingWinner] = useState(false);
 
@@ -117,6 +121,14 @@ export default function TripPollResultsScreen() {
           new Set(eligibleMembers.map((tripMember) => tripMember.user_id))
         );
         setDateOptions(res.dateOptions);
+        setFinalizedDateRange(
+          res.trip.final_start_date && res.trip.final_end_date
+            ? {
+                startDate: res.trip.final_start_date,
+                endDate: res.trip.final_end_date,
+              }
+            : null
+        );
         const stayDefinition = parseStayPollDefinition(
           res.trip.custom_poll_questions
         );
@@ -212,7 +224,14 @@ export default function TripPollResultsScreen() {
     .map(getTripMemberDisplayName);
   const allEligibleDateVotersVoted =
     eligibleVoterUserIds.size > 0 && dateWaitingCount === 0;
+  const finalizedDateLabel = finalizedDateRange
+    ? formatDateRangeLabel(
+        finalizedDateRange.startDate,
+        finalizedDateRange.endDate
+      )
+    : null;
   const canFinalizeDatePoll =
+    !finalizedDateRange &&
     canManageTrip &&
     allEligibleDateVotersVoted &&
     leadingDateResults.length === 1 &&
@@ -405,6 +424,10 @@ export default function TripPollResultsScreen() {
                 finalStartDate: leading.option.start_date,
                 finalEndDate: leading.option.end_date,
               });
+              setFinalizedDateRange({
+                startDate: leading.option.start_date,
+                endDate: leading.option.end_date,
+              });
               Alert.alert("Dates finalized", "The trip dates are now locked.");
             } catch (e: any) {
               Alert.alert("Couldn't finalize dates", e?.message ?? String(e));
@@ -592,7 +615,19 @@ export default function TripPollResultsScreen() {
         </Text>
       </View>
 
-      {canManageTrip ? (
+      {finalizedDateRange ? (
+        <View style={styles.dateFinalizedCard}>
+          <View style={styles.finalizedBadge}>
+            <Text style={styles.finalizedBadgeText}>Dates finalized</Text>
+          </View>
+          {finalizedDateLabel ? (
+            <Text style={styles.dateFinalizedRange}>{finalizedDateLabel}</Text>
+          ) : null}
+          <Text style={styles.dateFinalizedBody}>
+            These dates are locked for this trip.
+          </Text>
+        </View>
+      ) : canManageTrip ? (
         <View style={styles.dateFinalizeBlock}>
           <Pressable
             onPress={handleFinalizeDates}
@@ -1058,6 +1093,25 @@ const styles = StyleSheet.create({
   },
   dateFinalizeButton: {
     marginBottom: 0,
+  },
+  dateFinalizedCard: {
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  dateFinalizedRange: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  dateFinalizedBody: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
   },
   finalizeHelp: {
     color: colors.textMuted,
