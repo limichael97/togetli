@@ -62,7 +62,12 @@ Group trip planning is often fragmented across text messages, spreadsheets, shar
 
 ## Screenshots
 
-Coming soon.
+<img width="369" height="800" alt="1780523736522" src="https://github.com/user-attachments/assets/cac04f8d-bbd8-49ec-ba40-4d12af2a2d28" />
+<img width="369" height="800" alt="1780516684382" src="https://github.com/user-attachments/assets/97d375ec-8cf0-4957-bf59-c7477fc5ed10" />
+<img width="369" height="800" alt="1780516684235" src="https://github.com/user-attachments/assets/5335cf86-fd4b-47c6-8716-95fadbd247bd" />
+<img width="369" height="800" alt="1780516683948" src="https://github.com/user-attachments/assets/a2cbd796-59dc-4175-b6d9-b79259bb7273" />
+
+
 
 ## Current Status
 
